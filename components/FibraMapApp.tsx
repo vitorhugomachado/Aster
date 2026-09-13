@@ -301,7 +301,7 @@ export function FibraMapApp() {
       body: JSON.stringify({ city: name, state, ibgeId }),
     });
     const result = await response.json().catch(() => ({})) as Partial<CityProfile> & { message?: string };
-    if (!response.ok || !result.ibgeId || !result.name || !result.state || !result.center || !result.bounds) {
+    if (!response.ok || !result.ibgeId || !result.name || !result.state || !result.center) {
       throw new Error(result.message || 'Não foi possível confirmar esse município no IBGE.');
     }
     return {
@@ -447,7 +447,7 @@ export function FibraMapApp() {
       const storedProfile = cityProfiles.find(
         (profile) => normalizeKey(profile.name) === normalizeKey(requestedCity)
           && profile.state === requestedState
-          && profile.bounds,
+          && profile.center,
       );
       if (!storedProfile) {
         throw new Error(`Cadastre e valide ${requestedCity}/${requestedState} antes de importar.`);
@@ -507,7 +507,11 @@ export function FibraMapApp() {
         if (normalizedId) fileIds.add(normalizedId);
         if (providerTemplate && classification && classification !== 'cliente') issues.push('registro classificado como Fornecedor');
         if (hasCoordinateInput && !coordinatesValid) issues.push('latitude/longitude inválidas');
-        if (coordinatesValid && !coordinatesInsideCity) issues.push('coordenadas fora da cidade ativa');
+        if (coordinatesValid && !coordinatesInsideCity) {
+          issues.push(importCityProfile.bounds
+            ? 'coordenadas fora da cidade ativa'
+            : 'coordenadas não validadas porque a malha municipal está indisponível');
+        }
 
         return {
           id,

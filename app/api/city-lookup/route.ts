@@ -1,14 +1,10 @@
 import { NextResponse } from 'next/server';
+import { findMunicipality } from '../../data/municipalities';
 
 interface CityLookupPayload {
   city?: string;
   state?: string;
   ibgeId?: number;
-}
-
-interface IbgeMunicipality {
-  id?: number;
-  nome?: string;
 }
 
 type Position = [number, number];
@@ -77,10 +73,20 @@ export async function POST(request: Request) {
     return NextResponse.json({ message: 'Selecione um município válido da lista do IBGE.' }, { status: 400 });
   }
 
-  const municipalitiesUrl = new URL(
-    `https://servicodados.ibge.gov.br/api/v1/localidades/estados/${state}/municipios`,
-  );
-  municipalitiesUrl.searchParams.set('orderBy', 'nome');
+  const officialCity = findMunicipality(state, ibgeId);
+  if (!officialCity || normalize(officialCity.name) !== normalize(city)) {
+    return NextResponse.json(
+      { code: 'city_mismatch', message: 'O município não pertence à UF selecionada.' },
+      { status: 422 },
+    );
+  }
+
+  const baseProfile = {
+    ibgeId,
+    name: officialCity.name,
+    state,
+    center: { lat: officialCity.lat, lng: officialCity.lng },
+  };
   const boundaryUrl = new URL(
     `https://servicodados.ibge.gov.br/api/v3/malhas/municipios/${ibgeId}`,
   );
@@ -88,22 +94,11 @@ export async function POST(request: Request) {
   boundaryUrl.searchParams.set('qualidade', 'minima');
 
   try {
-    const [municipalitiesResponse, boundaryResponse] = await Promise.all([
-      fetch(municipalitiesUrl, { cache: 'force-cache' }),
-      fetch(boundaryUrl, { cache: 'force-cache' }),
-    ]);
-    if (!municipalitiesResponse.ok || !boundaryResponse.ok) {
-      return NextResponse.json({ message: 'A API do IBGE está temporariamente indisponível.' }, { status: 502 });
-    }
-
-    const municipalities = await municipalitiesResponse.json() as IbgeMunicipality[];
-    const officialCity = municipalities.find(
-      (item) => item.id === ibgeId && typeof item.nome === 'string' && normalize(item.nome) === normalize(city),
-    );
-    if (!officialCity?.nome) {
+    const boundaryResponse = await fetch(boundaryUrl, { cache: 'force-cache' });
+    if (!boundaryResponse.ok) {
       return NextResponse.json(
-        { code: 'city_mismatch', message: 'O município não pertence à UF selecionada.' },
-        { status: 422 },
+        { ...baseProfile, source: 'local_ibge_snapshot' },
+        { headers: { 'Cache-Control': 'public, max-age=86400, stale-while-revalidate=604800' } },
       );
     }
 
@@ -118,7 +113,10 @@ export async function POST(request: Request) {
     const rings = geometryRings(feature?.geometry);
     const points = rings.flat();
     if (!points.length) {
-      return NextResponse.json({ message: 'O IBGE não retornou a malha desse município.' }, { status: 502 });
+      return NextResponse.json(
+        { ...baseProfile, source: 'local_ibge_snapshot' },
+        { headers: { 'Cache-Control': 'public, max-age=86400, stale-while-revalidate=604800' } },
+      );
     }
 
     const longitudes = points.map(([lng]) => lng).filter(Number.isFinite);
@@ -128,13 +126,14 @@ export async function POST(request: Request) {
     const south = Math.min(...latitudes);
     const north = Math.max(...latitudes);
     if (![west, east, south, north].every(Number.isFinite)) {
-      return NextResponse.json({ message: 'A malha do município é inválida.' }, { status: 502 });
+      return NextResponse.json(
+        { ...baseProfile, source: 'local_ibge_snapshot' },
+        { headers: { 'Cache-Control': 'public, max-age=86400, stale-while-revalidate=604800' } },
+      );
     }
 
     return NextResponse.json({
-      ibgeId,
-      name: officialCity.nome,
-      state,
+      ...baseProfile,
       center: { lat: (north + south) / 2, lng: (east + west) / 2 },
       bounds: { north, south, east, west },
       boundary: rings.map((ring) => ring.map(([lng, lat]) => ({ lat, lng }))),
@@ -142,8 +141,8 @@ export async function POST(request: Request) {
     }, { headers: { 'Cache-Control': 'public, max-age=86400, stale-while-revalidate=604800' } });
   } catch {
     return NextResponse.json(
-      { message: 'Falha temporária ao consultar a malha do município no IBGE.' },
-      { status: 502 },
+      { ...baseProfile, source: 'local_ibge_snapshot' },
+      { headers: { 'Cache-Control': 'public, max-age=86400, stale-while-revalidate=604800' } },
     );
   }
 }
