@@ -60,6 +60,11 @@ interface ImportPreview {
   missingState: boolean;
 }
 
+interface MunicipalityOption {
+  id: number;
+  name: string;
+}
+
 const STATUS_OPTIONS: Array<ClientStatus | 'Todos'> = [
   'Todos',
   'Ativo',
@@ -140,8 +145,11 @@ export function FibraMapApp() {
   const [cityOpen, setCityOpen] = useState(false);
   const [newCity, setNewCity] = useState('');
   const [newCityState, setNewCityState] = useState('PR');
-  const [municipalities, setMunicipalities] = useState<Array<{ id: number; name: string }>>([]);
+  const [municipalities, setMunicipalities] = useState<MunicipalityOption[]>([]);
   const [municipalitiesBusy, setMunicipalitiesBusy] = useState(false);
+  const [selectedMunicipalityId, setSelectedMunicipalityId] = useState<number | null>(null);
+  const [citySuggestionsOpen, setCitySuggestionsOpen] = useState(false);
+  const [citySuggestionIndex, setCitySuggestionIndex] = useState(0);
   const [cityBusy, setCityBusy] = useState(false);
   const [cityError, setCityError] = useState('');
   const [status, setStatus] = useState<ClientStatus | 'Todos'>('Todos');
@@ -164,6 +172,19 @@ export function FibraMapApp() {
     () => [...cityProfiles].sort((left, right) => left.name.localeCompare(right.name, 'pt-BR')),
     [cityProfiles],
   );
+
+  const filteredMunicipalities = useMemo(() => {
+    const search = normalizeKey(newCity);
+    if (!search) return municipalities.slice(0, 8);
+    return municipalities
+      .filter((item) => normalizeKey(item.name).includes(search))
+      .sort((left, right) => {
+        const leftStarts = normalizeKey(left.name).startsWith(search) ? 0 : 1;
+        const rightStarts = normalizeKey(right.name).startsWith(search) ? 0 : 1;
+        return leftStarts - rightStarts || left.name.localeCompare(right.name, 'pt-BR');
+      })
+      .slice(0, 8);
+  }, [municipalities, newCity]);
 
   const activeCityProfile = useMemo(
     () => cityProfiles.find((profile) => normalizeKey(profile.name) === normalizeKey(city)) ?? null,
@@ -307,6 +328,14 @@ export function FibraMapApp() {
     setImportStateOverride(profile.state);
   }
 
+  function chooseMunicipality(option: MunicipalityOption) {
+    setNewCity(option.name);
+    setSelectedMunicipalityId(option.id);
+    setCitySuggestionIndex(0);
+    setCitySuggestionsOpen(false);
+    setCityError('');
+  }
+
   async function addCity() {
     const cityName = normalizeText(newCity);
     if (!cityName || !newCityState) {
@@ -316,9 +345,8 @@ export function FibraMapApp() {
     setCityBusy(true);
     setCityError('');
     try {
-      const municipality = municipalities.find(
-        (item) => normalizeKey(item.name) === normalizeKey(cityName),
-      );
+      const municipality = municipalities.find((item) => item.id === selectedMunicipalityId)
+        ?? municipalities.find((item) => normalizeKey(item.name) === normalizeKey(cityName));
       if (!municipality) {
         throw new Error('Selecione um município da lista oficial do IBGE.');
       }
@@ -914,24 +942,82 @@ export function FibraMapApp() {
             </header>
             <p className="city-help">Selecione a UF e escolha qualquer município da lista oficial do IBGE. O próprio IBGE validará a cidade e fornecerá seus limites; o Google será usado apenas para localizar rua e número.</p>
             <div className="city-fields">
-              <label><span>UF</span><select value={newCityState} onChange={(event) => { setMunicipalitiesBusy(true); setNewCityState(event.target.value); setNewCity(''); }} autoFocus>{BRAZILIAN_STATES.map((item) => <option key={item}>{item}</option>)}</select></label>
-              <label>
-                <span>Município</span>
-                <input
-                  list="municipality-options"
-                  value={newCity}
-                  onChange={(event) => setNewCity(event.target.value)}
-                  placeholder={municipalitiesBusy ? 'Carregando municípios…' : 'Ex.: Guaporema'}
-                />
-                <datalist id="municipality-options">
-                  {municipalities.map((item) => <option key={item.id} value={item.name} />)}
-                </datalist>
-              </label>
+              <label><span>UF</span><select value={newCityState} onChange={(event) => { setMunicipalitiesBusy(true); setSelectedMunicipalityId(null); setCitySuggestionsOpen(false); setNewCityState(event.target.value); setNewCity(''); }} autoFocus>{BRAZILIAN_STATES.map((item) => <option key={item}>{item}</option>)}</select></label>
+              <div className="city-field municipality-field">
+                <label htmlFor="municipality-search">Município</label>
+                <div className="municipality-input">
+                  <Search size={14} aria-hidden="true" />
+                  <input
+                    id="municipality-search"
+                    role="combobox"
+                    aria-autocomplete="list"
+                    aria-expanded={citySuggestionsOpen}
+                    aria-controls="municipality-options"
+                    aria-activedescendant={citySuggestionsOpen && filteredMunicipalities[citySuggestionIndex] ? `municipality-${filteredMunicipalities[citySuggestionIndex].id}` : undefined}
+                    value={newCity}
+                    onFocus={() => setCitySuggestionsOpen(true)}
+                    onBlur={() => setCitySuggestionsOpen(false)}
+                    onChange={(event) => {
+                      const value = event.target.value;
+                      const exact = municipalities.find(
+                        (item) => normalizeKey(item.name) === normalizeKey(value),
+                      );
+                      setNewCity(value);
+                      setSelectedMunicipalityId(exact?.id ?? null);
+                      setCityError('');
+                      setCitySuggestionIndex(0);
+                      setCitySuggestionsOpen(true);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === 'ArrowDown' && filteredMunicipalities.length) {
+                        event.preventDefault();
+                        setCitySuggestionsOpen(true);
+                        setCitySuggestionIndex((current) => (current + 1) % filteredMunicipalities.length);
+                      } else if (event.key === 'ArrowUp' && filteredMunicipalities.length) {
+                        event.preventDefault();
+                        setCitySuggestionsOpen(true);
+                        setCitySuggestionIndex((current) => (current - 1 + filteredMunicipalities.length) % filteredMunicipalities.length);
+                      } else if (event.key === 'Enter' && citySuggestionsOpen && filteredMunicipalities[citySuggestionIndex]) {
+                        event.preventDefault();
+                        chooseMunicipality(filteredMunicipalities[citySuggestionIndex]);
+                      } else if (event.key === 'Escape') {
+                        setCitySuggestionsOpen(false);
+                      }
+                    }}
+                    placeholder={municipalitiesBusy ? 'Carregando municípios…' : 'Digite o nome da cidade'}
+                    disabled={municipalitiesBusy}
+                    autoComplete="off"
+                  />
+                  <ChevronDown size={14} aria-hidden="true" />
+                </div>
+                {citySuggestionsOpen && (
+                  <div className="municipality-options" id="municipality-options" role="listbox">
+                    {municipalitiesBusy ? (
+                      <div className="municipality-message"><LoaderCircle className="spin" size={14} />Carregando cidades…</div>
+                    ) : filteredMunicipalities.length ? filteredMunicipalities.map((item, index) => (
+                      <button
+                        id={`municipality-${item.id}`}
+                        key={item.id}
+                        type="button"
+                        role="option"
+                        aria-selected={item.id === selectedMunicipalityId}
+                        className={index === citySuggestionIndex ? 'active' : ''}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => chooseMunicipality(item)}
+                      >
+                        <span>{item.name}</span><small>{newCityState} · IBGE {item.id}</small>
+                      </button>
+                    )) : (
+                      <div className="municipality-message">Nenhuma cidade encontrada em {newCityState}.</div>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
             {cityError && <div className="error-box"><AlertTriangle size={16} />{cityError}</div>}
             <footer className="modal-actions">
               <button className="secondary-action" onClick={() => setCityOpen(false)} disabled={cityBusy}>Cancelar</button>
-              <button className="primary-action" onClick={() => void addCity()} disabled={cityBusy || !newCity.trim()}>
+              <button className="primary-action" onClick={() => void addCity()} disabled={cityBusy || municipalitiesBusy || selectedMunicipalityId === null}>
                 {cityBusy ? <><LoaderCircle className="spin" size={15} />Validando…</> : <><MapPin size={15} />Validar e cadastrar</>}
               </button>
             </footer>
