@@ -48,7 +48,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, label:focus-wit
 .unmapped, .status-pill, .metric-grid > div, .history-list article,
 .file-summary, .modal-privacy, .template-row > div, .template-row button,
 .preview-metrics > div, .geocode-note, .modal-actions, .primary-action,
-.error-box, .toast { display: flex; align-items: center; }
+.error-box, .toast, .add-city-button { display: flex; align-items: center; }
 
 .brand-block { gap: 12px; }
 .brand-mark {
@@ -85,6 +85,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, label:focus-wit
 .city-picker select { position: absolute; inset: 0; width: 100%; cursor: pointer; opacity: 0; }
 .city-picker > svg:first-child { color: var(--green); }
 .city-picker > svg:last-child { color: #7f8e87; }
+.add-city-button { justify-content: center; gap: 6px; width: 100%; margin-top: 7px; border: 0; border-radius: 8px; background: transparent; padding: 7px; color: var(--green); font-size: 9px; font-weight: 750; }
+.add-city-button:hover { background: #f1f7f3; }
 .nav-list { display: grid; gap: 5px; margin-top: 24px; }
 .nav-list button { gap: 11px; width: 100%; border: 0; border-radius: 9px; background: transparent; padding: 11px 12px; color: #65746e; font-size: 12px; text-align: left; }
 .nav-list button svg { flex: 0 0 auto; }
@@ -199,6 +201,12 @@ table { width: 100%; border-collapse: collapse; }
 .import-modal > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
 .import-modal h2 { margin: 4px 0 0; font-size: 21px; letter-spacing: -.035em; }
 .import-modal > header > button { display: grid; place-items: center; width: 32px; height: 32px; border: 0; border-radius: 8px; background: #f2f5f3; color: #6f7d77; }
+.city-modal { width: min(520px, 100%); }
+.city-help { margin: 16px 0 0; color: var(--muted); font-size: 10px; line-height: 1.55; }
+.city-fields { display: grid; grid-template-columns: minmax(0, 1fr) 100px; gap: 9px; margin-top: 16px; }
+.city-fields label { display: block; border: 1px solid #d7e2dc; border-radius: 9px; background: #fff; padding: 9px 10px; }
+.city-fields label > span { display: block; margin-bottom: 5px; color: #74847c; font-size: 7px; font-weight: 750; text-transform: uppercase; letter-spacing: .07em; }
+.city-fields input, .city-fields select { width: 100%; border: 0; outline: 0; background: transparent; font-size: 11px; font-weight: 700; }
 .modal-privacy { align-items: flex-start; gap: 9px; margin-top: 17px; border: 1px solid #dce7e0; border-radius: 10px; background: #f1f8f4; padding: 10px 12px; color: #5d7167; font-size: 9px; line-height: 1.45; }
 .modal-privacy svg { flex: 0 0 auto; color: var(--green); }
 .modal-privacy b { display: block; color: #355347; }
@@ -285,7 +293,7 @@ table { width: 100%; border-collapse: collapse; }
   .search-box { height: 38px; }
   .search-box kbd { display: none; }
   .sidebar { position: fixed; z-index: 1000; left: 0; right: 0; bottom: 0; height: 68px; min-height: 0; flex-direction: row; gap: 7px; border: 0; border-top: 1px solid var(--line); padding: 7px 9px; box-shadow: 0 -8px 24px rgba(25,48,38,.08); }
-  .city-label, .city-picker, .summary-card, .reset-button { display: none; }
+  .city-label, .city-picker, .add-city-button, .summary-card, .reset-button { display: none; }
   .nav-list { flex: 1; grid-template-columns: repeat(3, 1fr); gap: 3px; margin: 0; }
   .nav-list button { flex-direction: column; justify-content: center; gap: 2px; padding: 5px; font-size: 8px; text-align: center; }
   .nav-list button svg { width: 16px; height: 16px; }
@@ -313,6 +321,7 @@ table { width: 100%; border-collapse: collapse; }
   .import-modal { width: 100%; max-height: 92vh; border-radius: 17px 17px 0 0; padding: 18px 15px; }
   .preview-metrics { grid-template-columns: 1fr; }
   .model-settings { grid-template-columns: 1fr; }
+  .city-fields { grid-template-columns: 1fr; }
   .template-row { align-items: flex-start; flex-direction: column; }
   .modal-actions { position: sticky; bottom: -18px; margin-inline: -15px; background: #fff; padding: 12px 15px 18px; }
   .toast { right: 10px; bottom: 80px; }

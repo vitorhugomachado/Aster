@@ -3,10 +3,11 @@
 import { importLibrary, setOptions } from '@googlemaps/js-api-loader';
 import { useEffect, useRef, useState } from 'react';
 import type { LayerGroup, Map as LeafletMap } from 'leaflet';
-import { ClientRecord, STATUS_COLORS } from './client-data';
+import { CityProfile, ClientRecord, STATUS_COLORS } from './client-data';
 
 interface ClientMapProps {
   clients: ClientRecord[];
+  cityProfile: CityProfile | null;
   selectedId: string | null;
   onSelect: (id: string) => void;
 }
@@ -29,7 +30,7 @@ function loadGoogleMaps(apiKey: string) {
   return googleMapsLibraryPromise;
 }
 
-export function ClientMap({ clients, selectedId, onSelect }: ClientMapProps) {
+export function ClientMap({ clients, cityProfile, selectedId, onSelect }: ClientMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const googleMapRef = useRef<google.maps.Map | null>(null);
   const googleOverlaysRef = useRef<google.maps.Circle[]>([]);
@@ -132,6 +133,12 @@ export function ClientMap({ clients, selectedId, onSelect }: ClientMapProps) {
     const map = googleMapRef.current;
     if (provider !== 'google' || !map) return;
 
+    map.setOptions({
+      restriction: cityProfile?.bounds
+        ? { latLngBounds: cityProfile.bounds, strictBounds: true }
+        : null,
+    });
+
     googleOverlaysRef.current.forEach((overlay) => {
       google.maps.event.clearInstanceListeners(overlay);
       overlay.setMap(null);
@@ -190,8 +197,13 @@ export function ClientMap({ clients, selectedId, onSelect }: ClientMapProps) {
         if ((map.getZoom() ?? 0) > 15) map.setZoom(15);
         listener.remove();
       });
+    } else if (cityProfile?.bounds) {
+      map.fitBounds(cityProfile.bounds, 36);
+    } else if (cityProfile?.center) {
+      map.setCenter(cityProfile.center);
+      map.setZoom(13);
     }
-  }, [clients, onSelect, provider, selectedId]);
+  }, [cityProfile, clients, onSelect, provider, selectedId]);
 
   useEffect(() => {
     const L = leafletRef.current;
@@ -244,8 +256,17 @@ export function ClientMap({ clients, selectedId, onSelect }: ClientMapProps) {
         L.latLngBounds(located.map((client) => [client.lat, client.lng])),
         { padding: [56, 56], maxZoom: 15, animate: false },
       );
+    } else if (cityProfile?.bounds) {
+      const cityBounds = L.latLngBounds(
+        [cityProfile.bounds.south, cityProfile.bounds.west],
+        [cityProfile.bounds.north, cityProfile.bounds.east],
+      );
+      map.setMaxBounds(cityBounds.pad(0.1));
+      map.fitBounds(cityBounds, { padding: [36, 36], animate: false });
+    } else if (cityProfile?.center) {
+      map.setView([cityProfile.center.lat, cityProfile.center.lng], 13, { animate: false });
     }
-  }, [clients, onSelect, provider, selectedId]);
+  }, [cityProfile, clients, onSelect, provider, selectedId]);
 
   return (
     <div className="map-frame">
@@ -259,7 +280,11 @@ export function ClientMap({ clients, selectedId, onSelect }: ClientMapProps) {
       )}
       {provider !== 'loading' && provider !== 'google-error' && (
         <div className={`map-provider-chip provider-${provider}`}>
-          {provider === 'google' ? 'Google Maps conectado' : 'Modo demonstração · OpenStreetMap'}
+          {provider === 'google'
+            ? cityProfile?.bounds
+              ? `Google Maps · limitado a ${cityProfile.name}/${cityProfile.state}`
+              : 'Google Maps · valide uma cidade'
+            : 'Modo demonstração · OpenStreetMap'}
         </div>
       )}
     </div>

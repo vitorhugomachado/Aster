@@ -2,6 +2,13 @@ export type ClientStatus = 'Ativo' | 'Instalação' | 'Atenção' | 'Inativo' | 
 
 export type LocationQuality = 'exata' | 'aproximada' | 'informada' | 'pendente';
 
+export interface CityProfile {
+  name: string;
+  state: string;
+  center?: { lat: number; lng: number };
+  bounds?: { north: number; south: number; east: number; west: number };
+}
+
 export interface ClientRecord {
   id: string;
   name: string;

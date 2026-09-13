@@ -58,7 +58,11 @@ function compatible(expected: string, actual: string) {
 }
 
 function component(result: GoogleGeocodeResult, ...types: string[]) {
-  return result.address_components?.find((item) => types.some((type) => item.types.includes(type)));
+  for (const type of types) {
+    const match = result.address_components?.find((item) => item.types.includes(type));
+    if (match) return match;
+  }
+  return undefined;
 }
 
 function allowRequest(request: Request) {
@@ -119,7 +123,7 @@ export async function POST(request: Request) {
     .join(', ');
   const url = new URL('https://maps.googleapis.com/maps/api/geocode/json');
   url.searchParams.set('address', address);
-  url.searchParams.set('components', 'country:BR');
+  url.searchParams.set('components', `locality:${city}|administrative_area:${state}|country:BR`);
   url.searchParams.set('language', 'pt-BR');
   url.searchParams.set('region', 'br');
   url.searchParams.set('key', apiKey);
@@ -147,25 +151,43 @@ export async function POST(request: Request) {
       return NextResponse.json({ message: 'O Google não aceitou a consulta.' }, { status: 502 });
     }
 
-    const result = data.results[0];
+    const candidates = data.results.map((result) => {
+      const returnedNumber = component(result, 'street_number')?.long_name ?? '';
+      const returnedStreet = component(result, 'route')?.long_name ?? '';
+      const returnedCity = component(result, 'locality', 'postal_town', 'administrative_area_level_2')?.long_name ?? '';
+      const returnedState = component(result, 'administrative_area_level_1')?.short_name ?? '';
+      const returnedZip = component(result, 'postal_code')?.long_name ?? '';
+      const checks = {
+        number: compatible(number, returnedNumber),
+        street: compatible(street, returnedStreet),
+        city: compatible(city, returnedCity),
+        state: compatible(state, returnedState),
+        zip: compatible(zip, returnedZip),
+      };
+      return { result, checks };
+    });
+
+    const candidate = candidates.find(({ checks }) => Object.values(checks).every(Boolean));
+    if (!candidate) {
+      const insideCity = candidates.some(({ checks }) => checks.city && checks.state);
+      return NextResponse.json(
+        {
+          code: insideCity ? 'imprecise_address' : 'outside_active_city',
+          message: insideCity
+            ? 'O Google não confirmou rua e número dentro da cidade ativa.'
+            : 'O resultado não pertence à cidade e UF selecionadas.',
+        },
+        { status: 422, headers: { 'Cache-Control': 'no-store' } },
+      );
+    }
+
+    const { result, checks } = candidate;
     const lat = result.geometry?.location?.lat;
     const lng = result.geometry?.location?.lng;
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    if (typeof lat !== 'number' || typeof lng !== 'number' || !Number.isFinite(lat) || !Number.isFinite(lng)) {
       return NextResponse.json({ code: 'not_found', message: 'Coordenadas não retornadas.' }, { status: 404 });
     }
 
-    const returnedNumber = component(result, 'street_number')?.long_name ?? '';
-    const returnedStreet = component(result, 'route')?.long_name ?? '';
-    const returnedCity = component(result, 'locality', 'administrative_area_level_2', 'postal_town')?.long_name ?? '';
-    const returnedState = component(result, 'administrative_area_level_1')?.short_name ?? '';
-    const returnedZip = component(result, 'postal_code')?.long_name ?? '';
-    const checks = {
-      number: compatible(number, returnedNumber),
-      street: compatible(street, returnedStreet),
-      city: compatible(city, returnedCity),
-      state: compatible(state, returnedState),
-      zip: compatible(zip, returnedZip),
-    };
     const locationType = result.geometry?.location_type ?? 'UNKNOWN';
     const exact = locationType === 'ROOFTOP'
       && result.partial_match !== true

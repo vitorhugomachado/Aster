@@ -25,6 +25,7 @@ import {
   LoaderCircle,
   MapPin,
   MapPinned,
+  Plus,
   RefreshCcw,
   Search,
   ShieldCheck,
@@ -35,6 +36,7 @@ import {
 } from 'lucide-react';
 import { ClientMap } from './ClientMap';
 import {
+  CityProfile,
   ClientRecord,
   ClientStatus,
   DEMO_CLIENTS,
@@ -75,6 +77,12 @@ const BRAZILIAN_STATES = [
 
 const CITY_STATE_HINTS: Record<string, string> = {
   guaporema: 'SP',
+};
+
+const DEFAULT_CITY_PROFILE: CityProfile = {
+  name: 'São Paulo',
+  state: 'SP',
+  center: { lat: -23.5505, lng: -46.6333 },
 };
 
 function asNumber(value: unknown) {
@@ -132,6 +140,12 @@ export function FibraMapApp() {
   const [view, setView] = useState<ViewName>('mapa');
   const [query, setQuery] = useState('');
   const [city, setCity] = useState('São Paulo');
+  const [cityProfiles, setCityProfiles] = useState<CityProfile[]>([DEFAULT_CITY_PROFILE]);
+  const [cityOpen, setCityOpen] = useState(false);
+  const [newCity, setNewCity] = useState('');
+  const [newCityState, setNewCityState] = useState('SP');
+  const [cityBusy, setCityBusy] = useState(false);
+  const [cityError, setCityError] = useState('');
   const [status, setStatus] = useState<ClientStatus | 'Todos'>('Todos');
   const [plan, setPlan] = useState('Todos');
   const [selectedId, setSelectedId] = useState<string | null>('CLI-001');
@@ -149,8 +163,13 @@ export function FibraMapApp() {
   const searchRef = useRef<HTMLInputElement>(null);
 
   const cities = useMemo(
-    () => Array.from(new Set(clients.map((client) => client.city).filter(Boolean))).sort(),
-    [clients],
+    () => [...cityProfiles].sort((left, right) => left.name.localeCompare(right.name, 'pt-BR')),
+    [cityProfiles],
+  );
+
+  const activeCityProfile = useMemo(
+    () => cityProfiles.find((profile) => normalizeKey(profile.name) === normalizeKey(city)) ?? null,
+    [city, cityProfiles],
   );
 
   const plans = useMemo(
@@ -159,7 +178,7 @@ export function FibraMapApp() {
   );
 
   const cityClients = useMemo(
-    () => clients.filter((client) => city === 'Todas' || client.city === city),
+    () => clients.filter((client) => normalizeKey(client.city) === normalizeKey(city)),
     [city, clients],
   );
 
@@ -182,7 +201,7 @@ export function FibraMapApp() {
     });
   }, [cityClients, plan, query, status]);
 
-  const selected = clients.find((client) => client.id === selectedId) ?? null;
+  const selected = visibleClients.find((client) => client.id === selectedId) ?? null;
   const locatedCount = cityClients.filter((client) => client.lat !== undefined && client.lng !== undefined).length;
   const pendingCount = cityClients.length - locatedCount;
 
@@ -202,10 +221,11 @@ export function FibraMapApp() {
         searchRef.current?.focus();
       }
       if (event.key === 'Escape' && importOpen) setImportOpen(false);
+      if (event.key === 'Escape' && cityOpen) setCityOpen(false);
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [importOpen]);
+  }, [cityOpen, importOpen]);
 
   useEffect(() => {
     if (!toast) return;
@@ -214,12 +234,70 @@ export function FibraMapApp() {
   }, [toast]);
 
   function openImporter() {
+    if (!activeCityProfile) {
+      setCityError('');
+      setCityOpen(true);
+      return;
+    }
     setImportError('');
     setImportPreview(null);
-    setImportCityOverride(city === 'Todas' ? '' : city);
-    setImportStateOverride('');
+    setImportCityOverride(activeCityProfile.name);
+    setImportStateOverride(activeCityProfile.state);
     setImportDefaultStatus('Ativo');
     setImportOpen(true);
+  }
+
+  async function lookupCityProfile(name: string, state: string): Promise<CityProfile> {
+    const response = await fetch('/api/city-lookup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ city: name, state }),
+    });
+    const result = await response.json().catch(() => ({})) as Partial<CityProfile> & { message?: string };
+    if (!response.ok || !result.name || !result.state || !result.center || !result.bounds) {
+      throw new Error(result.message || 'Não foi possível confirmar essa cidade no Google.');
+    }
+    return {
+      name: result.name,
+      state: result.state,
+      center: result.center,
+      bounds: result.bounds,
+    };
+  }
+
+  function rememberCity(profile: CityProfile) {
+    setCityProfiles((current) => {
+      const exists = current.some(
+        (item) => normalizeKey(item.name) === normalizeKey(profile.name) && item.state === profile.state,
+      );
+      return exists
+        ? current.map((item) => normalizeKey(item.name) === normalizeKey(profile.name) && item.state === profile.state ? profile : item)
+        : [...current, profile];
+    });
+    setCity(profile.name);
+    setImportCityOverride(profile.name);
+    setImportStateOverride(profile.state);
+  }
+
+  async function addCity() {
+    const cityName = normalizeText(newCity);
+    if (!cityName || !newCityState) {
+      setCityError('Informe o nome da cidade e a UF.');
+      return;
+    }
+    setCityBusy(true);
+    setCityError('');
+    try {
+      const profile = await lookupCityProfile(cityName, newCityState);
+      rememberCity(profile);
+      setCityOpen(false);
+      setNewCity('');
+      setToast(`${profile.name}/${profile.state} cadastrada e definida como cidade ativa.`);
+    } catch (error) {
+      setCityError(error instanceof Error ? error.message : 'Não foi possível cadastrar a cidade.');
+    } finally {
+      setCityBusy(false);
+    }
   }
 
   function downloadTemplate() {
@@ -291,8 +369,29 @@ export function FibraMapApp() {
       const firstCity = cityColumn >= 0
         ? sourceRows.map(({ row }) => normalizeText(row[cityColumn])).find(Boolean) ?? ''
         : '';
-      const fallbackCity = firstCity || (city === 'Todas' ? '' : city);
-      const inferredState = CITY_STATE_HINTS[normalizeKey(fallbackCity)] ?? '';
+      const stateColumn = mapping.state;
+      const firstState = stateColumn >= 0
+        ? sourceRows.map(({ row }) => normalizeText(row[stateColumn]).toUpperCase()).find(Boolean) ?? ''
+        : '';
+      const requestedCity = firstCity || activeCityProfile?.name || '';
+      const requestedState = firstState
+        || CITY_STATE_HINTS[normalizeKey(requestedCity)]
+        || (activeCityProfile && normalizeKey(activeCityProfile.name) === normalizeKey(requestedCity)
+          ? activeCityProfile.state
+          : '');
+      if (!requestedCity || !requestedState) {
+        throw new Error('Cadastre a cidade e a UF antes de importar esta planilha.');
+      }
+
+      const storedProfile = cityProfiles.find(
+        (profile) => normalizeKey(profile.name) === normalizeKey(requestedCity)
+          && profile.state === requestedState
+          && profile.bounds,
+      );
+      const importCityProfile = storedProfile ?? await lookupCityProfile(requestedCity, requestedState);
+      rememberCity(importCityProfile);
+      const fallbackCity = importCityProfile.name;
+      const inferredState = importCityProfile.state;
       setImportCityOverride(fallbackCity);
       setImportStateOverride(inferredState);
 
@@ -306,9 +405,11 @@ export function FibraMapApp() {
         const name = get('name');
         const street = get('street');
         const number = get('number');
-        const cityValue = get('city') || fallbackCity;
+        const sourceCity = get('city');
+        const sourceState = get('state').toUpperCase();
+        const cityValue = fallbackCity;
         const id = explicitId || generatedClientId(name, street, number, cityValue);
-        const state = get('state').toUpperCase() || inferredState;
+        const state = inferredState;
         const rawStatus = get('status');
         const classification = normalizeKey(get('classification'));
         const rawLat = get('lat');
@@ -316,7 +417,14 @@ export function FibraMapApp() {
         const lat = asNumber(rawLat);
         const lng = asNumber(rawLng);
         const hasCoordinateInput = Boolean(rawLat || rawLng);
-        const hasCoordinates = lat !== undefined && lng !== undefined && Math.abs(lat) <= 90 && Math.abs(lng) <= 180;
+        const coordinatesValid = lat !== undefined && lng !== undefined && Math.abs(lat) <= 90 && Math.abs(lng) <= 180;
+        const coordinatesInsideCity = coordinatesValid
+          && Boolean(importCityProfile.bounds)
+          && lat <= importCityProfile.bounds!.north
+          && lat >= importCityProfile.bounds!.south
+          && lng <= importCityProfile.bounds!.east
+          && lng >= importCityProfile.bounds!.west;
+        const hasCoordinates = coordinatesValid && coordinatesInsideCity;
         const hasRequiredAddress = Boolean(name && street && number);
         const canGeocode = Boolean(hasRequiredAddress && cityValue && state);
         const issues: string[] = [];
@@ -325,10 +433,17 @@ export function FibraMapApp() {
         if (!name) issues.push('nome ausente');
         if (!street) issues.push('logradouro ausente');
         if (!number) issues.push('número ausente');
+        if (sourceCity && normalizeKey(sourceCity) !== normalizeKey(fallbackCity)) {
+          issues.push(`cidade diferente de ${fallbackCity}/${inferredState}`);
+        }
+        if (sourceState && sourceState !== inferredState) {
+          issues.push(`UF diferente de ${inferredState}`);
+        }
         if (normalizedId && (existingIds.has(normalizedId) || fileIds.has(normalizedId))) issues.push('registro duplicado');
         if (normalizedId) fileIds.add(normalizedId);
         if (providerTemplate && classification && classification !== 'cliente') issues.push('registro classificado como Fornecedor');
-        if (hasCoordinateInput && !hasCoordinates) issues.push('latitude/longitude inválidas');
+        if (hasCoordinateInput && !coordinatesValid) issues.push('latitude/longitude inválidas');
+        if (coordinatesValid && !coordinatesInsideCity) issues.push('coordenadas fora da cidade ativa');
 
         return {
           id,
@@ -399,27 +514,53 @@ export function FibraMapApp() {
           zip: row.zip,
         }),
       });
-      if (!response.ok) return base;
-      const result = await response.json() as {
-        lat: number;
-        lng: number;
-        quality: 'exata' | 'aproximada';
+      const result = await response.json().catch(() => ({})) as {
+        lat?: number;
+        lng?: number;
+        quality?: 'exata' | 'aproximada';
+        message?: string;
       };
-      return { ...base, lat: result.lat, lng: result.lng, locationQuality: result.quality };
+      if (
+        !response.ok
+        || typeof result.lat !== 'number'
+        || typeof result.lng !== 'number'
+        || !result.quality
+      ) {
+        return {
+          ...base,
+          pendingReason: result.message || 'Endereço não confirmado dentro da cidade ativa.',
+          locationQuality: 'pendente',
+        };
+      }
+      return {
+        ...base,
+        lat: result.lat,
+        lng: result.lng,
+        pendingReason: undefined,
+        locationQuality: result.quality,
+      };
     } catch {
-      return base;
+      return {
+        ...base,
+        pendingReason: 'Falha temporária ao consultar o Google.',
+        locationQuality: 'pendente',
+      };
     }
   }
 
   async function confirmImport() {
     if (!importPreview) return;
+    if (!activeCityProfile?.bounds) {
+      setImportError('Cadastre e valide a cidade antes de iniciar a localização.');
+      return;
+    }
     setImportBusy(true);
     setImportError('');
     const valid = importPreview.rows
       .filter((row) => row.issues.length === 0)
       .map((row) => {
-        const rowCity = row.city || importCityOverride;
-        const rowState = row.state || importStateOverride;
+        const rowCity = activeCityProfile.name;
+        const rowState = activeCityProfile.state;
         return {
           ...row,
           city: rowCity,
@@ -464,11 +605,14 @@ export function FibraMapApp() {
     setImportOpen(false);
     setImportPreview(null);
     setView('mapa');
-    setToast(`${mapped} cliente${mapped === 1 ? '' : 's'} no mapa${pending ? ` · ${pending} aguardando localização` : ''}${rejected ? ` · ${rejected} com erro` : ''}.`);
+    setToast(mapped
+      ? `${mapped} cliente${mapped === 1 ? '' : 's'} confirmado${mapped === 1 ? '' : 's'} em ${activeCityProfile.name}/${activeCityProfile.state}${pending ? ` · ${pending} aguardando revisão` : ''}${rejected ? ` · ${rejected} com erro` : ''}.`
+      : `Nenhum endereço foi confirmado em ${activeCityProfile.name}/${activeCityProfile.state}. Verifique a chave do Google e os registros pendentes.`);
   }
 
   function resetDemo() {
     setClients(DEMO_CLIENTS);
+    setCityProfiles([DEFAULT_CITY_PROFILE]);
     setHistory([]);
     setCity('São Paulo');
     setStatus('Todos');
@@ -516,13 +660,28 @@ export function FibraMapApp() {
         <div className="city-label">Cidade selecionada</div>
         <label className="city-picker">
           <MapPin size={17} aria-hidden="true" />
-          <span><b>{city}</b><small>{city === 'Todas' ? 'Todas as cidades' : 'Brasil'}</small></span>
-          <select aria-label="Selecionar cidade" value={city} onChange={(event) => setCity(event.target.value)}>
-            <option value="Todas">Todas as cidades</option>
-            {cities.map((item) => <option key={item}>{item}</option>)}
+          <span><b>{city}</b><small>{activeCityProfile?.bounds ? `${activeCityProfile.state} · área validada` : 'Cidade ainda não validada'}</small></span>
+          <select
+            aria-label="Selecionar cidade"
+            value={city}
+            onChange={(event) => {
+              setCity(event.target.value);
+              setSelectedId(null);
+            }}
+          >
+            {cities.map((item) => <option key={`${item.name}-${item.state}`} value={item.name}>{item.name}/{item.state}</option>)}
           </select>
           <ChevronDown size={15} aria-hidden="true" />
         </label>
+        <button
+          className="add-city-button"
+          onClick={() => {
+            setCityError('');
+            setCityOpen(true);
+          }}
+        >
+          <Plus size={14} />Cadastrar nova cidade
+        </button>
 
         <nav className="nav-list" aria-label="Navegação principal">
           <button className={view === 'mapa' ? 'active' : ''} onClick={() => setView('mapa')}><MapPinned size={18} />Mapa de clientes</button>
@@ -565,7 +724,12 @@ export function FibraMapApp() {
               </label>
             </div>
 
-            <ClientMap clients={visibleClients} selectedId={selectedId} onSelect={handleMapSelect} />
+            <ClientMap
+              clients={visibleClients}
+              cityProfile={activeCityProfile}
+              selectedId={selectedId}
+              onSelect={handleMapSelect}
+            />
 
             {selected && selected.lat !== undefined && selected.lng !== undefined && (
               <article className="client-popover">
@@ -607,7 +771,7 @@ export function FibraMapApp() {
                       <td>{client.neighborhood || '—'}</td>
                       <td>{client.plan}</td>
                       <td><span className="status-pill" style={{ color: STATUS_COLORS[client.status] }}><i style={{ background: STATUS_COLORS[client.status] }} />{client.status}</span></td>
-                      <td>{client.lat !== undefined ? <span className="mapped"><CheckCircle2 size={14} />Mapeado</span> : <span className="unmapped"><Clock3 size={14} />Revisar</span>}</td>
+                      <td>{client.lat !== undefined ? <span className="mapped"><CheckCircle2 size={14} />Mapeado</span> : <span className="unmapped" title={client.pendingReason}><Clock3 size={14} />Revisar</span>}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -677,8 +841,8 @@ export function FibraMapApp() {
                       <p><AlertTriangle size={16} /><span><b>Faltam campos obrigatórios neste arquivo.</b> Cada cliente precisa de nome, logradouro e número para ser importado.</span></p>
                     )}
                     <div className="model-settings">
-                      <label><span>Cidade padrão (opcional)</span><input value={importCityOverride} onChange={(event) => setImportCityOverride(event.target.value)} placeholder="Informe a cidade" /></label>
-                      <label><span>UF (opcional)</span><select value={importStateOverride} onChange={(event) => setImportStateOverride(event.target.value)}><option value="">Selecione</option>{BRAZILIAN_STATES.map((item) => <option key={item}>{item}</option>)}</select></label>
+                      <label><span>Cidade ativa e obrigatória</span><input value={importCityOverride} readOnly /></label>
+                      <label><span>UF</span><input value={importStateOverride} readOnly /></label>
                       <label><span>Status padrão</span><select value={importDefaultStatus} onChange={(event) => setImportDefaultStatus(event.target.value as ClientStatus)}>{STATUS_OPTIONS.filter((item) => item !== 'Todos').map((item) => <option key={item}>{item}</option>)}</select></label>
                     </div>
                     <small>Código, contrato, bairro e demais campos são opcionais. Por privacidade, Documento, Email e Celular não são adicionados ao mapa.</small>
@@ -696,10 +860,33 @@ export function FibraMapApp() {
                   ))}
                 </tbody></table>{importPreview.rows.length > 6 && <div className="more-rows">Mais {importPreview.rows.length - 6} linhas não exibidas na prévia.</div>}</div>
                 {importError && <div className="error-box"><AlertTriangle size={16} />{importError}</div>}
-                <p className="geocode-note"><ShieldCheck size={15} />Endereços completos serão consultados pela Google Geocoding API quando as chaves estiverem configuradas. Só resultados ROOFTOP totalmente compatíveis são marcados como exatos; os demais seguem para revisão.</p>
+                <p className="geocode-note"><ShieldCheck size={15} />A busca está limitada a {importCityOverride}/{importStateOverride}. Resultados que não confirmem cidade, rua e número ficam pendentes e nunca são colocados no centro do estado.</p>
                 <footer className="modal-actions"><button className="secondary-action" onClick={() => setImportPreview(null)} disabled={importBusy}>Voltar</button><button className="primary-action" onClick={() => void confirmImport()} disabled={importBusy || previewImportable === 0}>{importBusy ? <><LoaderCircle className="spin" size={15} />Processando…</> : <>Importar {previewImportable} clientes</>}</button></footer>
               </>
             )}
+          </section>
+        </div>
+      )}
+
+      {cityOpen && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !cityBusy) setCityOpen(false); }}>
+          <section className="import-modal city-modal" role="dialog" aria-modal="true" aria-labelledby="city-title">
+            <header>
+              <div><span className="eyebrow">Área de trabalho</span><h2 id="city-title">Cadastrar cidade</h2></div>
+              <button onClick={() => setCityOpen(false)} disabled={cityBusy} aria-label="Fechar"><X size={18} /></button>
+            </header>
+            <p className="city-help">O Google validará a cidade e o mapa ficará restrito à área encontrada. Depois, toda importação será vinculada a essa cidade.</p>
+            <div className="city-fields">
+              <label><span>Cidade</span><input value={newCity} onChange={(event) => setNewCity(event.target.value)} placeholder="Ex.: Guaporema" autoFocus /></label>
+              <label><span>UF</span><select value={newCityState} onChange={(event) => setNewCityState(event.target.value)}>{BRAZILIAN_STATES.map((item) => <option key={item}>{item}</option>)}</select></label>
+            </div>
+            {cityError && <div className="error-box"><AlertTriangle size={16} />{cityError}</div>}
+            <footer className="modal-actions">
+              <button className="secondary-action" onClick={() => setCityOpen(false)} disabled={cityBusy}>Cancelar</button>
+              <button className="primary-action" onClick={() => void addCity()} disabled={cityBusy || !newCity.trim()}>
+                {cityBusy ? <><LoaderCircle className="spin" size={15} />Validando…</> : <><MapPin size={15} />Validar e cadastrar</>}
+              </button>
+            </footer>
           </section>
         </div>
       )}
