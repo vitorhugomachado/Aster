@@ -75,10 +75,6 @@ const BRAZILIAN_STATES = [
   'SP', 'SE', 'TO',
 ];
 
-const CITY_STATE_HINTS: Record<string, string> = {
-  guaporema: 'SP',
-};
-
 const DEFAULT_CITY_PROFILE: CityProfile = {
   name: 'São Paulo',
   state: 'SP',
@@ -143,7 +139,9 @@ export function FibraMapApp() {
   const [cityProfiles, setCityProfiles] = useState<CityProfile[]>([DEFAULT_CITY_PROFILE]);
   const [cityOpen, setCityOpen] = useState(false);
   const [newCity, setNewCity] = useState('');
-  const [newCityState, setNewCityState] = useState('SP');
+  const [newCityState, setNewCityState] = useState('PR');
+  const [municipalities, setMunicipalities] = useState<string[]>([]);
+  const [municipalitiesBusy, setMunicipalitiesBusy] = useState(false);
   const [cityBusy, setCityBusy] = useState(false);
   const [cityError, setCityError] = useState('');
   const [status, setStatus] = useState<ClientStatus | 'Todos'>('Todos');
@@ -233,9 +231,36 @@ export function FibraMapApp() {
     return () => window.clearTimeout(timer);
   }, [toast]);
 
+  useEffect(() => {
+    if (!cityOpen || !newCityState) return;
+    const controller = new AbortController();
+    fetch(`/api/municipalities?state=${encodeURIComponent(newCityState)}`, {
+      signal: controller.signal,
+      cache: 'force-cache',
+    })
+      .then(async (response) => {
+        if (!response.ok) throw new Error('Falha ao carregar municípios.');
+        const result = await response.json() as { municipalities?: Array<{ name?: string }> };
+        setMunicipalities(
+          (result.municipalities ?? [])
+            .map((item) => item.name ?? '')
+            .filter(Boolean),
+        );
+      })
+      .catch((error) => {
+        if (error instanceof DOMException && error.name === 'AbortError') return;
+        setMunicipalities([]);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setMunicipalitiesBusy(false);
+      });
+    return () => controller.abort();
+  }, [cityOpen, newCityState]);
+
   function openImporter() {
     if (!activeCityProfile) {
       setCityError('');
+      setMunicipalitiesBusy(true);
       setCityOpen(true);
       return;
     }
@@ -375,7 +400,6 @@ export function FibraMapApp() {
         : '';
       const requestedCity = firstCity || activeCityProfile?.name || '';
       const requestedState = firstState
-        || CITY_STATE_HINTS[normalizeKey(requestedCity)]
         || (activeCityProfile && normalizeKey(activeCityProfile.name) === normalizeKey(requestedCity)
           ? activeCityProfile.state
           : '');
@@ -677,6 +701,7 @@ export function FibraMapApp() {
           className="add-city-button"
           onClick={() => {
             setCityError('');
+            setMunicipalitiesBusy(true);
             setCityOpen(true);
           }}
         >
@@ -875,10 +900,21 @@ export function FibraMapApp() {
               <div><span className="eyebrow">Área de trabalho</span><h2 id="city-title">Cadastrar cidade</h2></div>
               <button onClick={() => setCityOpen(false)} disabled={cityBusy} aria-label="Fechar"><X size={18} /></button>
             </header>
-            <p className="city-help">O Google validará a cidade e o mapa ficará restrito à área encontrada. Depois, toda importação será vinculada a essa cidade.</p>
+            <p className="city-help">Selecione a UF e escolha qualquer município da lista oficial do IBGE. O Google validará a área antes da importação.</p>
             <div className="city-fields">
-              <label><span>Cidade</span><input value={newCity} onChange={(event) => setNewCity(event.target.value)} placeholder="Ex.: Guaporema" autoFocus /></label>
-              <label><span>UF</span><select value={newCityState} onChange={(event) => setNewCityState(event.target.value)}>{BRAZILIAN_STATES.map((item) => <option key={item}>{item}</option>)}</select></label>
+              <label><span>UF</span><select value={newCityState} onChange={(event) => { setMunicipalitiesBusy(true); setNewCityState(event.target.value); setNewCity(''); }} autoFocus>{BRAZILIAN_STATES.map((item) => <option key={item}>{item}</option>)}</select></label>
+              <label>
+                <span>Município</span>
+                <input
+                  list="municipality-options"
+                  value={newCity}
+                  onChange={(event) => setNewCity(event.target.value)}
+                  placeholder={municipalitiesBusy ? 'Carregando municípios…' : 'Ex.: Guaporema'}
+                />
+                <datalist id="municipality-options">
+                  {municipalities.map((item) => <option key={item} value={item} />)}
+                </datalist>
+              </label>
             </div>
             {cityError && <div className="error-box"><AlertTriangle size={16} />{cityError}</div>}
             <footer className="modal-actions">
