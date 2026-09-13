@@ -1,15 +1,41 @@
 @import 'tailwindcss';
 
 :root {
-  --ink: #13231d;
-  --muted: #697872;
-  --line: #dce5df;
-  --green: #0b684b;
-  --green-dark: #064a37;
-  --mint: #dff5e9;
-  --paper: #f5f8f6;
-  --amber: #d99a28;
-  --coral: #dc5a56;
+  --ds-color-background-primary: #ffffff;
+  --ds-color-background-secondary: #f6f6f6;
+  --ds-color-background-tertiary: #eeeeee;
+  --ds-color-background-inverse: #000000;
+  --ds-color-content-primary: #000000;
+  --ds-color-content-secondary: #545454;
+  --ds-color-content-tertiary: #6f6f6f;
+  --ds-color-border: #dedede;
+  --ds-color-accent: #276ef1;
+  --ds-color-accent-dark: #174ea6;
+  --ds-color-positive: #05944f;
+  --ds-color-warning: #e57200;
+  --ds-color-negative: #e11900;
+  --ds-space-1: 4px;
+  --ds-space-2: 8px;
+  --ds-space-3: 12px;
+  --ds-space-4: 16px;
+  --ds-space-5: 20px;
+  --ds-space-6: 24px;
+  --ds-space-8: 32px;
+  --ds-space-10: 40px;
+  --ds-space-12: 48px;
+  --ds-radius-sm: 4px;
+  --ds-radius-md: 8px;
+  --ds-radius-lg: 12px;
+  --ds-shadow-overlay: 0 16px 40px rgba(0,0,0,.16);
+  --ink: var(--ds-color-content-primary);
+  --muted: var(--ds-color-content-secondary);
+  --line: var(--ds-color-border);
+  --green: var(--ds-color-accent);
+  --green-dark: var(--ds-color-accent-dark);
+  --mint: #eef3fe;
+  --paper: var(--ds-color-background-secondary);
+  --amber: var(--ds-color-warning);
+  --coral: var(--ds-color-negative);
 }
 
 * { box-sizing: border-box; }
@@ -19,7 +45,7 @@ button, input, select { font: inherit; }
 button, select { color: inherit; }
 button { cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .55; }
-button:focus-visible, input:focus-visible, select:focus-visible, label:focus-within { outline: 3px solid rgba(19,132,95,.22); outline-offset: 2px; }
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, label:focus-within { outline: 3px solid rgba(39,110,241,.3); outline-offset: 2px; }
 
 .app-shell {
   min-height: 100vh;
@@ -340,4 +366,111 @@ table { width: 100%; border-collapse: collapse; }
   .template-row { align-items: flex-start; flex-direction: column; }
   .modal-actions { position: sticky; bottom: -18px; margin-inline: -15px; background: #fff; padding: 12px 15px 18px; }
   .toast { right: 10px; bottom: 80px; }
+}
+
+/* FibraMapa Design System — high contrast, clear hierarchy and a 4px spacing grid. */
+.topbar {
+  border-bottom-color: #292929;
+  background: var(--ds-color-background-inverse);
+  color: #fff;
+  box-shadow: none;
+}
+.brand-mark { border-radius: var(--ds-radius-md); background: #fff; color: #000; box-shadow: none; }
+.brand-block div > span { color: #a6a6a6; }
+.search-box { border-color: #3d3d3d; border-radius: var(--ds-radius-md); background: #1f1f1f; color: #a6a6a6; }
+.search-box input { color: #fff; }
+.search-box input::placeholder { color: #a6a6a6; }
+.search-box kbd { border-color: #4a4a4a; background: #292929; color: #d6d6d6; box-shadow: none; }
+.demo-badge { border-color: #3d3d3d; background: #1f1f1f; color: #d6d6d6; }
+.icon-button { border-color: #3d3d3d; background: #1f1f1f; color: #fff; }
+.profile-button { color: #fff; }
+.profile-button > span:first-child { background: var(--ds-color-accent); }
+.profile-button small { color: #a6a6a6; }
+.design-system-link { border-bottom: 1px solid transparent; color: #d6d6d6; font-size: 10px; font-weight: 700; text-decoration: none; }
+.design-system-link:hover { border-bottom-color: #fff; color: #fff; }
+.sidebar { background: var(--ds-color-background-primary); }
+.city-picker, .filter-button, .client-popover, .map-key, .privacy-note { border-radius: var(--ds-radius-md); }
+.nav-list button { border-radius: var(--ds-radius-md); }
+.nav-list button.active { background: var(--mint); color: var(--ds-color-accent-dark); }
+.nav-list button.active::before { width: 3px; height: 20px; border-radius: 2px; background: var(--ds-color-accent); content: ''; }
+.active-dot { background: var(--ds-color-positive); }
+.install-dot { background: var(--ds-color-warning); }
+.alert-dot { background: var(--ds-color-negative); }
+.inactive-dot, .pending-dot { background: var(--ds-color-content-tertiary); }
+.import-button, .primary-small, .primary-action { border-radius: var(--ds-radius-md); background: #000; box-shadow: none; }
+.import-button:hover, .primary-small:hover, .primary-action:hover { background: #292929; }
+.add-city-button { color: var(--ds-color-accent); }
+.add-city-button:hover { background: var(--mint); }
+.summary-card, .table-wrap, .metric-grid > div, .history-list article, .empty-state, .import-modal { border-radius: var(--ds-radius-lg); box-shadow: none; }
+.content-stage { background: var(--ds-color-background-secondary); }
+.panel-view { background: var(--ds-color-background-secondary); }
+.map-provider-chip { border-radius: var(--ds-radius-sm); }
+.provider-google { border-color: #b8ccf7; color: var(--ds-color-accent-dark); }
+.quality-tag, .history-icon { background: var(--mint); color: var(--ds-color-accent-dark); }
+.mapped { color: var(--ds-color-positive); }
+.unmapped, .quality-aproximada { color: #9f4b00; }
+.table-wrap tbody tr:hover { background: #f3f6fc; }
+.modal-backdrop { background: rgba(0,0,0,.56); }
+.import-modal { border-color: #d6d6d6; box-shadow: var(--ds-shadow-overlay); }
+.upload-orb { background: var(--mint); color: var(--ds-color-accent); }
+.toast { border-radius: var(--ds-radius-md); border-color: #b8ccf7; color: #163d78; box-shadow: var(--ds-shadow-overlay); }
+
+.design-system-page { height: 100vh; overflow: auto; background: #fff; color: #000; }
+.ds-header { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 32px; min-height: 360px; background: #000; padding: 56px clamp(24px, 7vw, 112px); color: #fff; }
+.ds-header > div { max-width: 780px; }
+.ds-kicker { display: block; margin-bottom: 28px; color: #a6a6a6; font-size: 12px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+.ds-header h1 { max-width: 720px; margin: 0; font-size: clamp(46px, 7vw, 88px); line-height: .96; letter-spacing: -.065em; }
+.ds-header p { max-width: 620px; margin: 28px 0 0; color: #d6d6d6; font-size: 16px; line-height: 1.6; }
+.ds-back { align-self: start; border-bottom: 1px solid #6f6f6f; padding: 8px 0; color: #fff; font-size: 13px; font-weight: 700; text-decoration: none; }
+.ds-back:hover { border-color: #fff; }
+.ds-main { width: min(1240px, calc(100% - 48px)); margin: 0 auto; padding: 72px 0 112px; }
+.ds-section { display: grid; grid-template-columns: minmax(180px, 280px) minmax(0, 1fr); gap: 48px; border-top: 1px solid #dedede; padding: 56px 0; }
+.ds-section-heading span { color: var(--ds-color-accent); font-family: var(--font-geist-mono); font-size: 11px; font-weight: 700; }
+.ds-section-heading h2 { margin: 12px 0 8px; font-size: 28px; letter-spacing: -.035em; }
+.ds-section-heading p { margin: 0; color: #545454; font-size: 13px; line-height: 1.55; }
+.ds-canvas { min-width: 0; }
+.ds-color-grid { display: grid; grid-template-columns: repeat(3, minmax(130px, 1fr)); gap: 12px; }
+.ds-swatch { min-height: 144px; display: flex; flex-direction: column; justify-content: flex-end; border: 1px solid #dedede; border-radius: 8px; padding: 16px; }
+.ds-swatch b, .ds-swatch code { display: block; }
+.ds-swatch code { margin-top: 4px; font-family: var(--font-geist-mono); font-size: 11px; }
+.ds-type-sample { border-bottom: 1px solid #dedede; padding: 24px 0; }
+.ds-type-sample:first-child { padding-top: 0; }
+.ds-type-sample:last-child { border: 0; }
+.ds-type-sample small { display: block; margin-bottom: 8px; color: #6f6f6f; font-family: var(--font-geist-mono); font-size: 10px; }
+.ds-type-display { font-size: clamp(40px, 6vw, 72px); font-weight: 700; line-height: 1; letter-spacing: -.06em; }
+.ds-type-title { font-size: 30px; font-weight: 700; letter-spacing: -.035em; }
+.ds-type-body { max-width: 660px; color: #545454; font-size: 16px; line-height: 1.6; }
+.ds-space-grid { display: flex; align-items: end; gap: 20px; min-height: 160px; overflow-x: auto; }
+.ds-space-item { min-width: 56px; color: #545454; font-family: var(--font-geist-mono); font-size: 10px; text-align: center; }
+.ds-space-bar { width: 100%; margin-bottom: 8px; background: var(--ds-color-accent); }
+.ds-component-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.ds-button { min-height: 48px; border: 0; border-radius: 8px; padding: 0 20px; font-size: 14px; font-weight: 700; }
+.ds-button-primary { background: #000; color: #fff; }
+.ds-button-secondary { border: 1px solid #000; background: #fff; color: #000; }
+.ds-button-tertiary { background: #eef3fe; color: #174ea6; }
+.ds-button:disabled { background: #eeeeee; color: #a6a6a6; }
+.ds-field { display: block; max-width: 440px; }
+.ds-field span { display: block; margin-bottom: 8px; font-size: 12px; font-weight: 700; }
+.ds-field input { width: 100%; height: 48px; border: 1px solid #6f6f6f; border-radius: 8px; padding: 0 14px; font-size: 14px; }
+.ds-field small { display: block; margin-top: 7px; color: #545454; font-size: 11px; }
+.ds-status-grid { display: grid; grid-template-columns: repeat(2, minmax(160px, 1fr)); gap: 12px; }
+.ds-status { display: flex; align-items: center; gap: 10px; border: 1px solid #dedede; border-radius: 8px; padding: 18px; font-size: 13px; font-weight: 700; }
+.ds-status i { width: 10px; height: 10px; border-radius: 50%; }
+.ds-data-card { border: 1px solid #dedede; border-radius: 12px; overflow: hidden; }
+.ds-data-card header { display: flex; align-items: center; justify-content: space-between; padding: 20px; }
+.ds-data-card h3 { margin: 0; font-size: 18px; }
+.ds-data-card header span { border-radius: 999px; background: #e6f6ed; padding: 6px 9px; color: #02753d; font-size: 11px; font-weight: 700; }
+.ds-data-row { display: grid; grid-template-columns: 1fr 1fr auto; gap: 16px; border-top: 1px solid #eeeeee; padding: 16px 20px; color: #545454; font-size: 13px; }
+.ds-data-row b { color: #000; }
+
+@media (max-width: 780px) {
+  .design-system-link { display: none; }
+  .ds-header { grid-template-columns: 1fr; align-items: start; min-height: 0; padding-block: 48px; }
+  .ds-header h1 { font-size: 48px; }
+  .ds-back { grid-row: 1; justify-self: start; }
+  .ds-main { width: min(100% - 32px, 1240px); padding-top: 32px; }
+  .ds-section { grid-template-columns: 1fr; gap: 28px; padding: 40px 0; }
+  .ds-color-grid { grid-template-columns: repeat(2, 1fr); }
+  .ds-status-grid { grid-template-columns: 1fr; }
+  .ds-data-row { grid-template-columns: 1fr; gap: 5px; }
 }

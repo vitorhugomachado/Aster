@@ -11,6 +11,7 @@ import {
 } from 'react';
 import { readSheet } from 'read-excel-file/browser';
 import * as Papa from 'papaparse';
+import Link from 'next/link';
 import {
   AlertTriangle,
   Bell,
@@ -77,6 +78,7 @@ const STATUS_OPTIONS: Array<ClientStatus | 'Todos'> = [
 
 const PARANA_STATE = 'PR';
 const MUNICIPALITIES = paranaMunicipalities as MunicipalityOption[];
+const STORAGE_KEY = 'fibra-mapa:workspace:v1';
 
 const DEFAULT_CITY_PROFILE: CityProfile = {
   ibgeId: 4109104,
@@ -157,9 +159,11 @@ export function FibraMapApp() {
   const [importStateOverride, setImportStateOverride] = useState('');
   const [importDefaultStatus, setImportDefaultStatus] = useState<ClientStatus>('Ativo');
   const [importBusy, setImportBusy] = useState(false);
+  const [geocodeProgress, setGeocodeProgress] = useState({ done: 0, total: 0 });
   const [importError, setImportError] = useState('');
   const [dragActive, setDragActive] = useState(false);
   const [history, setHistory] = useState<ImportBatch[]>([]);
+  const [storageReady, setStorageReady] = useState(false);
   const [toast, setToast] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -250,6 +254,55 @@ export function FibraMapApp() {
     return () => window.clearTimeout(timer);
   }, [toast]);
 
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      try {
+        const saved = window.localStorage.getItem(STORAGE_KEY);
+        if (saved) {
+          const workspace = JSON.parse(saved) as {
+            clients?: ClientRecord[];
+            cityProfiles?: CityProfile[];
+            city?: string;
+            history?: Array<Omit<ImportBatch, 'importedAt'> & { importedAt: string }>;
+          };
+          if (Array.isArray(workspace.clients) && workspace.clients.length) {
+            setClients(workspace.clients);
+            setSelectedId(workspace.clients.find((client) => client.lat !== undefined)?.id ?? null);
+          }
+          if (Array.isArray(workspace.cityProfiles) && workspace.cityProfiles.length) {
+            setCityProfiles(workspace.cityProfiles);
+          }
+          if (workspace.city) setCity(workspace.city);
+          if (Array.isArray(workspace.history)) {
+            setHistory(workspace.history.map((batch) => ({
+              ...batch,
+              importedAt: new Date(batch.importedAt),
+            })));
+          }
+        }
+      } catch {
+        window.localStorage.removeItem(STORAGE_KEY);
+      } finally {
+        setStorageReady(true);
+      }
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!storageReady) return;
+    try {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        clients,
+        cityProfiles,
+        city,
+        history,
+      }));
+    } catch {
+      // Browsers can disable or limit local storage. The live session remains usable.
+    }
+  }, [city, cityProfiles, clients, history, storageReady]);
+
   function openImporter() {
     if (!activeCityProfile) {
       setCityError('');
@@ -258,6 +311,7 @@ export function FibraMapApp() {
     }
     setImportError('');
     setImportPreview(null);
+    setGeocodeProgress({ done: 0, total: 0 });
     setImportCityOverride(activeCityProfile.name);
     setImportStateOverride(activeCityProfile.state);
     setImportDefaultStatus('Ativo');
@@ -360,12 +414,13 @@ export function FibraMapApp() {
 
   async function parseFile(file: File) {
     setImportError('');
+    setGeocodeProgress({ done: 0, total: 0 });
     setImportBusy(true);
     try {
-      if (file.size > 5 * 1024 * 1024) throw new Error('A planilha deve ter no máximo 5 MB nesta demonstração.');
+      if (file.size > 5 * 1024 * 1024) throw new Error('A planilha deve ter no máximo 5 MB.');
       const matrix = await matrixFromFile(file);
       if (matrix.length < 2) throw new Error('A planilha precisa ter um cabeçalho e pelo menos uma linha de cliente.');
-      if (matrix.length > 5001) throw new Error('Esta demonstração aceita até 5.000 clientes por arquivo.');
+      if (matrix.length > 5001) throw new Error('O sistema aceita até 5.000 clientes por arquivo.');
 
       const headerKeys = matrix[0].map(normalizeKey);
       const providerRegistryTemplate = [
@@ -463,7 +518,9 @@ export function FibraMapApp() {
           && lng <= importCityProfile.bounds!.east
           && lng >= importCityProfile.bounds!.west;
         const hasCoordinates = coordinatesValid && coordinatesInsideCity;
-        const hasRequiredAddress = Boolean(name && street && number);
+        const normalizedNumber = normalizeKey(number);
+        const hasAddressNumber = Boolean(number && !['s_n', 'sn', 'sem_numero', '0'].includes(normalizedNumber));
+        const hasRequiredAddress = Boolean(name && street && hasAddressNumber);
         const canGeocode = Boolean(hasRequiredAddress && cityValue && state);
         const issues: string[] = [];
         const normalizedId = normalizeKey(id);
@@ -471,6 +528,7 @@ export function FibraMapApp() {
         if (!name) issues.push('nome ausente');
         if (!street) issues.push('logradouro ausente');
         if (!number) issues.push('número ausente');
+        else if (!hasAddressNumber) issues.push('número não informado (S/N)');
         if (sourceCity && normalizeKey(sourceCity) !== normalizeKey(fallbackCity)) {
           issues.push(`cidade diferente de ${fallbackCity}/${inferredState}`);
         }
@@ -514,13 +572,33 @@ export function FibraMapApp() {
         };
       });
 
-      setImportPreview({
+      const preview: ImportPreview = {
         fileName: file.name,
         rows,
         providerTemplate,
         missingCity: mapping.city < 0,
         missingState: mapping.state < 0,
-      });
+      };
+      setImportPreview(preview);
+
+      const indexesToLocate = rows
+        .map((row, index) => ({ row, index }))
+        .filter(({ row }) => row.issues.length === 0 && row.needsGeocoding);
+      const resolvedRows = [...rows];
+      setGeocodeProgress({ done: 0, total: indexesToLocate.length });
+      for (let start = 0; start < indexesToLocate.length; start += 5) {
+        const batch = indexesToLocate.slice(start, start + 5);
+        const results = await Promise.all(batch.map(async ({ row, index }) => ({
+          index,
+          resolved: await geocode(row, importCityProfile.ibgeId),
+        })));
+        for (const { index, resolved } of results) {
+          resolvedRows[index] = { ...resolvedRows[index], ...resolved, needsGeocoding: false };
+        }
+        const done = Math.min(start + batch.length, indexesToLocate.length);
+        setGeocodeProgress({ done, total: indexesToLocate.length });
+        setImportPreview({ ...preview, rows: [...resolvedRows] });
+      }
     } catch (error) {
       setImportError(error instanceof Error ? error.message : 'Não foi possível processar a planilha.');
     } finally {
@@ -541,7 +619,7 @@ export function FibraMapApp() {
     if (file) void parseFile(file);
   }
 
-  async function geocode(row: ParsedClient): Promise<ClientRecord> {
+  async function geocode(row: ParsedClient, ibgeId = activeCityProfile?.ibgeId): Promise<ClientRecord> {
     const base = recordFromParsed(row);
     try {
       const response = await fetch('/api/geocode', {
@@ -554,7 +632,7 @@ export function FibraMapApp() {
           city: row.city,
           state: row.state,
           zip: row.zip,
-          ibgeId: activeCityProfile?.ibgeId,
+          ibgeId,
         }),
       });
       const result = await response.json().catch(() => ({})) as {
@@ -609,23 +687,16 @@ export function FibraMapApp() {
           city: rowCity,
           state: rowState,
           status: importPreview.providerTemplate ? importDefaultStatus : row.status,
-          needsGeocoding: row.lat === undefined && Boolean(row.name && row.street && row.number && rowCity && rowState),
         };
       });
-    const resolved: ClientRecord[] = [];
-    for (let start = 0; start < valid.length; start += 5) {
-      const batch = valid.slice(start, start + 5);
-      const results = await Promise.all(batch.map(async (row) => {
-        if (!row.needsGeocoding) return recordFromParsed(row);
-        return geocode(row);
-      }));
-      resolved.push(...results);
-    }
+    const resolved = valid.map(recordFromParsed);
 
     const mapped = resolved.filter((row) => row.lat !== undefined && row.lng !== undefined).length;
     const pending = resolved.length - mapped;
     const rejected = importPreview.rows.length - valid.length;
-    setClients((current) => [...current, ...resolved]);
+    setClients((current) => current.every((client) => client.source === 'demo')
+      ? resolved
+      : [...current, ...resolved]);
     setHistory((current) => [{
       id: crypto.randomUUID(),
       fileName: importPreview.fileName,
@@ -665,9 +736,9 @@ export function FibraMapApp() {
 
   const previewReady = importPreview?.rows.filter((row) => row.issues.length === 0 && row.lat !== undefined && row.lng !== undefined).length ?? 0;
   const previewGeocode = importPreview?.rows.filter((row) => row.issues.length === 0 && row.needsGeocoding).length ?? 0;
-  const previewPending = importPreview?.rows.filter((row) => row.issues.length === 0 && row.lat === undefined && !row.needsGeocoding).length ?? 0;
+  const previewNotLocated = importPreview?.rows.filter((row) => row.issues.length === 0 && row.lat === undefined && !row.needsGeocoding).length ?? 0;
   const previewErrors = importPreview?.rows.filter((row) => row.issues.length > 0).length ?? 0;
-  const previewImportable = previewReady + previewGeocode + previewPending;
+  const previewImportable = importPreview?.rows.filter((row) => row.issues.length === 0).length ?? 0;
 
   return (
     <main className="app-shell">
@@ -690,7 +761,8 @@ export function FibraMapApp() {
         </label>
 
         <div className="top-actions">
-          <span className="demo-badge">Dados fictícios</span>
+          <Link className="design-system-link" href="/design-system">Sistema visual</Link>
+          <span className="demo-badge">Dados neste dispositivo</span>
           <button className="icon-button" aria-label="Notificações"><Bell size={16} /></button>
           <button className="profile-button"><span>SC</span><span className="profile-name">Stefani<br /><small>Comercial</small></span></button>
         </div>
@@ -799,7 +871,7 @@ export function FibraMapApp() {
               <span><i className="dot alert-dot" />Atenção</span>
               <span><i className="dot inactive-dot" />Inativo</span>
             </div>
-            <div className="privacy-note"><ShieldCheck size={16} /><span><b>Demonstração segura</b> O arquivo fica somente nesta sessão. A localização consulta primeiro a base oficial de endereços do IBGE; o Google é usado como complemento.</span></div>
+            <div className="privacy-note"><ShieldCheck size={16} /><span><b>Dados protegidos no dispositivo</b> A base importada fica neste navegador. A localização consulta primeiro os endereços do IBGE; o Google é usado como complemento.</span></div>
           </>
         )}
 
@@ -856,7 +928,7 @@ export function FibraMapApp() {
         <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !importBusy) setImportOpen(false); }}>
           <section className="import-modal" role="dialog" aria-modal="true" aria-labelledby="import-title">
             <header><div><span className="eyebrow">Nova base de clientes</span><h2 id="import-title">Importar planilha</h2></div><button onClick={() => setImportOpen(false)} disabled={importBusy} aria-label="Fechar"><X size={18} /></button></header>
-            <div className="modal-privacy"><ShieldCheck size={18} /><span><b>Use dados fictícios nesta demonstração.</b> Com o Google Maps configurado, só logradouro, número, bairro, CEP, cidade e UF são enviados; nome, ID, plano, documento e celular não saem do sistema.</span></div>
+            <div className="modal-privacy"><ShieldCheck size={18} /><span><b>Somente o endereço é usado na localização.</b> Logradouro, número, bairro, CEP, cidade e UF podem ser enviados ao geocodificador; nome, ID, plano, documento e celular não saem do sistema.</span></div>
 
             {!importPreview ? (
               <>
@@ -881,10 +953,12 @@ export function FibraMapApp() {
                 {importPreview.providerTemplate && (
                   <div className="model-recognized">
                     <div><CheckCircle2 size={18} /><span><b>Modelo do provedor reconhecido</b>O sistema encontrou automaticamente as colunas disponíveis e ignora linhas de título e totalização.</span></div>
-                    {previewGeocode > 0 ? (
-                      <p className="model-address-ok"><CheckCircle2 size={16} /><span><b>Nome, logradouro e número encontrados.</b> Esses registros estão prontos para a etapa de localização no mapa.</span></p>
+                    {importBusy && previewGeocode > 0 ? (
+                      <p className="model-address-ok"><LoaderCircle className="spin" size={16} /><span><b>Localizando automaticamente.</b> O sistema está consultando cada endereço e preparando os marcadores.</span></p>
+                    ) : previewReady > 0 || previewNotLocated > 0 ? (
+                      <p className="model-address-ok"><CheckCircle2 size={16} /><span><b>Localização automática concluída.</b> Os endereços confirmados já estão prontos para aparecer no mapa.</span></p>
                     ) : (
-                      <p><AlertTriangle size={16} /><span><b>Faltam campos obrigatórios neste arquivo.</b> Cada cliente precisa de nome, logradouro e número para ser importado.</span></p>
+                      <p><AlertTriangle size={16} /><span><b>Nenhum endereço apto.</b> Corrija nome, logradouro e número para iniciar a localização.</span></p>
                     )}
                     <div className="model-settings">
                       <label><span>Cidade ativa e obrigatória</span><input value={importCityOverride} readOnly /></label>
@@ -895,19 +969,37 @@ export function FibraMapApp() {
                   </div>
                 )}
                 <div className="preview-metrics">
-                  <div className="preview-ready"><CheckCircle2 size={17} /><span>Prontos no mapa<b>{previewReady}</b></span></div>
-                  <div className="preview-pending"><Clock3 size={17} /><span>Para geocodificar<b>{previewGeocode}</b></span></div>
-                  <div className="preview-incomplete"><MapPin size={17} /><span>Sem endereço<b>{previewPending}</b></span></div>
+                  <div className="preview-ready"><CheckCircle2 size={17} /><span>Localizados<b>{previewReady}</b></span></div>
+                  <div className="preview-pending"><Clock3 size={17} /><span>Localizando agora<b>{previewGeocode}</b></span></div>
+                  <div className="preview-incomplete"><MapPin size={17} /><span>Não confirmados<b>{previewNotLocated}</b></span></div>
                   <div className="preview-error"><AlertTriangle size={17} /><span>Com erro<b>{previewErrors}</b></span></div>
                 </div>
                 <div className="preview-table"><table><thead><tr><th>Linha</th><th>ID</th><th>Cidade</th><th>Endereço</th><th>Resultado</th></tr></thead><tbody>
                   {importPreview.rows.slice(0, 6).map((row) => (
-                    <tr key={`${row.rowNumber}-${row.id}`}><td>{row.rowNumber}</td><td>{row.id || '—'}</td><td>{row.city || '—'}</td><td>{row.street ? `${row.street}${row.number ? `, ${row.number}` : ''}` : 'Não disponível no modelo'}</td><td>{row.issues.length ? <span className="row-error">{row.issues.join(' · ')}</span> : row.needsGeocoding ? <span className="row-pending">localizar endereço</span> : row.lat !== undefined ? <span className="row-ready">coordenadas válidas</span> : <span className="row-incomplete">aguardando endereço</span>}</td></tr>
+                    <tr key={`${row.rowNumber}-${row.id}`}>
+                      <td>{row.rowNumber}</td><td>{row.id || '—'}</td><td>{row.city || '—'}</td>
+                      <td>{row.street ? `${row.street}${row.number ? `, ${row.number}` : ''}` : 'Não disponível no modelo'}</td>
+                      <td>{row.issues.length
+                        ? <span className="row-error">{row.issues.join(' · ')}</span>
+                        : row.needsGeocoding
+                          ? <span className="row-pending">localizando automaticamente</span>
+                          : row.lat !== undefined
+                            ? <span className="row-ready">coordenadas confirmadas</span>
+                            : <span className="row-incomplete">{row.pendingReason || 'endereço não confirmado'}</span>}
+                      </td>
+                    </tr>
                   ))}
                 </tbody></table>{importPreview.rows.length > 6 && <div className="more-rows">Mais {importPreview.rows.length - 6} linhas não exibidas na prévia.</div>}</div>
                 {importError && <div className="error-box"><AlertTriangle size={16} />{importError}</div>}
-                <p className="geocode-note"><ShieldCheck size={15} />A busca está limitada a {importCityOverride}/{importStateOverride}. O IBGE é consultado primeiro e o Google complementa a busca. Resultados que não confirmem cidade, rua e número ficam pendentes e nunca são colocados no centro do estado.</p>
-                <footer className="modal-actions"><button className="secondary-action" onClick={() => setImportPreview(null)} disabled={importBusy}>Voltar</button><button className="primary-action" onClick={() => void confirmImport()} disabled={importBusy || previewImportable === 0}>{importBusy ? <><LoaderCircle className="spin" size={15} />Processando…</> : <>Importar {previewImportable} clientes</>}</button></footer>
+                <p className="geocode-note"><ShieldCheck size={15} />O próprio sistema localiza os endereços em {importCityOverride}/{importStateOverride}. Você só precisa aguardar a conclusão e adicionar os clientes ao mapa. Registros sem número real, como S/N, não podem indicar uma residência exata.</p>
+                <footer className="modal-actions">
+                  <button className="secondary-action" onClick={() => setImportPreview(null)} disabled={importBusy}>Voltar</button>
+                  <button className="primary-action" onClick={() => void confirmImport()} disabled={importBusy || previewImportable === 0}>
+                    {importBusy
+                      ? <><LoaderCircle className="spin" size={15} />Localizando {geocodeProgress.done}/{geocodeProgress.total}…</>
+                      : <>Adicionar {previewImportable} clientes ao mapa</>}
+                  </button>
+                </footer>
               </>
             )}
           </section>

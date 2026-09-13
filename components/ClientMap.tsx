@@ -52,7 +52,7 @@ export function ClientMap({ clients, cityProfile, selectedId, onSelect }: Client
         zoomControl: false,
         attributionControl: true,
         preferCanvas: true,
-      }).setView([-23.565, -46.65], 13);
+      }).setView([-23.3402, -52.7786], 13);
 
       L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 19,
@@ -94,7 +94,7 @@ export function ClientMap({ clients, cityProfile, selectedId, onSelect }: Client
         if (cancelled || !containerRef.current) return;
 
         googleMapRef.current = new Map(containerRef.current, {
-          center: { lat: -23.565, lng: -46.65 },
+          center: { lat: -23.3402, lng: -52.7786 },
           zoom: 13,
           mapTypeControl: false,
           streetViewControl: false,
@@ -155,10 +155,10 @@ export function ClientMap({ clients, cityProfile, selectedId, onSelect }: Client
         map,
         paths: cityProfile.boundary,
         clickable: false,
-        strokeColor: '#0b684b',
+        strokeColor: '#276ef1',
         strokeOpacity: 0.72,
         strokeWeight: 2,
-        fillColor: '#0b684b',
+        fillColor: '#276ef1',
         fillOpacity: 0.025,
         zIndex: 1,
       });

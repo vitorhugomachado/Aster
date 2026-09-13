@@ -49,11 +49,11 @@ export interface ImportBatch {
 }
 
 export const STATUS_COLORS: Record<ClientStatus, string> = {
-  Ativo: '#12845f',
-  Instalação: '#d99a28',
-  Atenção: '#dc5a56',
-  Inativo: '#7c8b84',
-  Pendente: '#6f7e77',
+  Ativo: '#05944f',
+  Instalação: '#e57200',
+  Atenção: '#e11900',
+  Inativo: '#6f6f6f',
+  Pendente: '#545454',
 };
 
 export const DEMO_CLIENTS: ClientRecord[] = [

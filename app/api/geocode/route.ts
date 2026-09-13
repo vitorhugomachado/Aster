@@ -153,8 +153,8 @@ export async function POST(request: Request) {
     return NextResponse.json({
       lat: cnefeMatch.lat,
       lng: cnefeMatch.lng,
-      quality: 'exata',
-      locationType: 'IBGE_CNEFE',
+      quality: cnefeMatch.precision === 'exact' ? 'exata' : 'aproximada',
+      locationType: cnefeMatch.precision === 'exact' ? 'IBGE_CNEFE' : 'IBGE_CNEFE_INTERPOLATED',
       source: 'IBGE_CNEFE',
       partialMatch: false,
       checks: { number: true, street: true, city: true, state: true, zip: true },
@@ -164,8 +164,7 @@ export async function POST(request: Request) {
   }
 
   const apiKey = process.env.GOOGLE_MAPS_GEOCODING_KEY;
-  const browserKey = process.env.GOOGLE_MAPS_BROWSER_KEY;
-  if (!apiKey || !browserKey) {
+  if (!apiKey) {
     return NextResponse.json(
       { code: 'geocoder_not_configured', message: 'O endereço não está na base do IBGE e o Google Maps ainda não foi configurado.' },
       { status: 503, headers: { 'Cache-Control': 'no-store' } },
