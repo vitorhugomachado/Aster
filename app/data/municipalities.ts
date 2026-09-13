@@ -31,3 +31,16 @@ export function findMunicipality(state: string, id: number) {
   return municipalities.find((item) => item.stateCode === stateCode && item.id === id);
 }
 
+export function findMunicipalityByName(state: string, name: string) {
+  const stateCode = STATE_CODES[state];
+  const normalizedName = name
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '');
+  return municipalities.find((item) => item.stateCode === stateCode && item.name
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '') === normalizedName);
+}

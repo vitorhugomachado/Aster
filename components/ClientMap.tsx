@@ -34,9 +34,11 @@ export function ClientMap({ clients, cityProfile, selectedId, onSelect }: Client
   const containerRef = useRef<HTMLDivElement>(null);
   const googleMapRef = useRef<google.maps.Map | null>(null);
   const googleOverlaysRef = useRef<Array<google.maps.Circle | google.maps.Polygon>>([]);
+  const googleCityKeyRef = useRef('');
   const leafletMapRef = useRef<LeafletMap | null>(null);
   const leafletLayerRef = useRef<LayerGroup | null>(null);
   const leafletRef = useRef<typeof import('leaflet') | null>(null);
+  const leafletCityKeyRef = useRef('');
   const [provider, setProvider] = useState<MapProvider>('loading');
 
   useEffect(() => {
@@ -132,6 +134,9 @@ export function ClientMap({ clients, cityProfile, selectedId, onSelect }: Client
   useEffect(() => {
     const map = googleMapRef.current;
     if (provider !== 'google' || !map) return;
+    const cityKey = cityProfile ? `${cityProfile.state}-${cityProfile.ibgeId ?? cityProfile.name}` : '';
+    const cityChanged = cityKey !== googleCityKeyRef.current;
+    googleCityKeyRef.current = cityKey;
 
     map.setOptions({
       restriction: cityProfile?.bounds
@@ -203,7 +208,12 @@ export function ClientMap({ clients, cityProfile, selectedId, onSelect }: Client
       bounds.extend(center);
     });
 
-    if (located.length === 1) {
+    if (cityChanged && cityProfile?.bounds) {
+      map.fitBounds(cityProfile.bounds, 36);
+    } else if (cityChanged && cityProfile?.center) {
+      map.setCenter(cityProfile.center);
+      map.setZoom(13);
+    } else if (located.length === 1) {
       map.setCenter(bounds.getCenter());
       map.setZoom(17);
     } else if (located.length > 1) {
@@ -225,6 +235,9 @@ export function ClientMap({ clients, cityProfile, selectedId, onSelect }: Client
     const map = leafletMapRef.current;
     const layer = leafletLayerRef.current;
     if (provider !== 'demo' || !L || !map || !layer) return;
+    const cityKey = cityProfile ? `${cityProfile.state}-${cityProfile.ibgeId ?? cityProfile.name}` : '';
+    const cityChanged = cityKey !== leafletCityKeyRef.current;
+    leafletCityKeyRef.current = cityKey;
 
     layer.clearLayers();
     const located = clients.filter(
@@ -264,7 +277,17 @@ export function ClientMap({ clients, cityProfile, selectedId, onSelect }: Client
       }
     });
 
-    if (located.length === 1) {
+    if (cityChanged && cityProfile?.bounds) {
+      const cityBounds = L.latLngBounds(
+        [cityProfile.bounds.south, cityProfile.bounds.west],
+        [cityProfile.bounds.north, cityProfile.bounds.east],
+      );
+      map.setMaxBounds(cityBounds.pad(0.1));
+      map.fitBounds(cityBounds, { padding: [36, 36], animate: false });
+    } else if (cityChanged && cityProfile?.center) {
+      map.setMaxBounds(L.latLngBounds([-90, -180], [90, 180]));
+      map.setView([cityProfile.center.lat, cityProfile.center.lng], 13, { animate: false });
+    } else if (located.length === 1) {
       map.setView([located[0].lat, located[0].lng], 16, { animate: false });
     } else if (located.length > 1) {
       map.fitBounds(
@@ -296,9 +319,9 @@ export function ClientMap({ clients, cityProfile, selectedId, onSelect }: Client
       {provider !== 'loading' && provider !== 'google-error' && (
         <div className={`map-provider-chip provider-${provider}`}>
           {provider === 'google'
-            ? cityProfile?.bounds
-              ? `Google Maps · limitado a ${cityProfile.name}/${cityProfile.state}`
-              : 'Google Maps · valide uma cidade'
+            ? cityProfile
+              ? `Google Maps · ${cityProfile.name}/${cityProfile.state}${cityProfile.bounds ? ' · limites oficiais' : ''}`
+              : 'Google Maps · selecione uma cidade'
             : 'Modo demonstração · OpenStreetMap'}
         </div>
       )}

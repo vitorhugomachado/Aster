@@ -326,6 +326,10 @@ export function FibraMapApp() {
     setCity(profile.name);
     setImportCityOverride(profile.name);
     setImportStateOverride(profile.state);
+    setSelectedId(null);
+    setStatus('Todos');
+    setPlan('Todos');
+    setView('mapa');
   }
 
   function chooseMunicipality(option: MunicipalityOption) {
@@ -580,6 +584,7 @@ export function FibraMapApp() {
           city: row.city,
           state: row.state,
           zip: row.zip,
+          ibgeId: activeCityProfile?.ibgeId,
         }),
       });
       const result = await response.json().catch(() => ({})) as {
@@ -618,7 +623,7 @@ export function FibraMapApp() {
 
   async function confirmImport() {
     if (!importPreview) return;
-    if (!activeCityProfile?.bounds) {
+    if (!activeCityProfile?.center) {
       setImportError('Cadastre e valide a cidade antes de iniciar a localização.');
       return;
     }
@@ -638,13 +643,10 @@ export function FibraMapApp() {
         };
       });
     const resolved: ClientRecord[] = [];
-    let geocoded = 0;
-
     for (let start = 0; start < valid.length; start += 5) {
       const batch = valid.slice(start, start + 5);
       const results = await Promise.all(batch.map(async (row) => {
-        if (!row.needsGeocoding || geocoded >= 250) return recordFromParsed(row);
-        geocoded += 1;
+        if (!row.needsGeocoding) return recordFromParsed(row);
         return geocode(row);
       }));
       resolved.push(...results);
@@ -728,13 +730,16 @@ export function FibraMapApp() {
         <div className="city-label">Cidade selecionada</div>
         <label className="city-picker">
           <MapPin size={17} aria-hidden="true" />
-          <span><b>{city}</b><small>{activeCityProfile?.bounds ? `${activeCityProfile.state} · área validada` : 'Cidade ainda não validada'}</small></span>
+          <span><b>{city}</b><small>{activeCityProfile?.center ? `${activeCityProfile.state} · cidade validada${activeCityProfile.bounds ? ' · limites oficiais' : ''}` : 'Cidade ainda não validada'}</small></span>
           <select
             aria-label="Selecionar cidade"
             value={city}
             onChange={(event) => {
               setCity(event.target.value);
               setSelectedId(null);
+              setStatus('Todos');
+              setPlan('Todos');
+              setView('mapa');
             }}
           >
             {cities.map((item) => <option key={`${item.name}-${item.state}`} value={item.name}>{item.name}/{item.state}</option>)}

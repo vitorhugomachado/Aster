@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { findMunicipality, findMunicipalityByName } from '../../data/municipalities';
 
 interface GeocodePayload {
   street?: string;
@@ -7,6 +8,7 @@ interface GeocodePayload {
   city?: string;
   state?: string;
   zip?: string;
+  ibgeId?: number;
 }
 
 interface GoogleAddressComponent {
@@ -32,7 +34,7 @@ interface GoogleGeocodeResponse {
 }
 
 const WINDOW_MS = 60_000;
-const MAX_REQUESTS_PER_WINDOW = 120;
+const MAX_REQUESTS_PER_WINDOW = 2_000;
 const rateWindows = new Map<string, { count: number; startedAt: number }>();
 
 function clean(value: unknown, maxLength: number) {
@@ -46,15 +48,34 @@ function normalize(value: string) {
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
+    .replace(/[^a-z0-9]/g, '');
+}
+
+function normalizeStreet(value: string) {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
     .replace(/\b(rua|r|avenida|av|rodovia|rod|travessa|tv|estrada|est)\b/g, '')
     .replace(/[^a-z0-9]/g, '');
 }
 
-function compatible(expected: string, actual: string) {
+function exact(expected: string, actual: string) {
   if (!expected) return true;
-  const left = normalize(expected);
-  const right = normalize(actual);
-  return Boolean(left && right && (left === right || left.includes(right) || right.includes(left)));
+  return Boolean(actual && normalize(expected) === normalize(actual));
+}
+
+function exactStreet(expected: string, actual: string) {
+  return Boolean(expected && actual && normalizeStreet(expected) === normalizeStreet(actual));
+}
+
+function distanceKm(from: { lat: number; lng: number }, to: { lat: number; lng: number }) {
+  const radians = (value: number) => value * Math.PI / 180;
+  const latDelta = radians(to.lat - from.lat);
+  const lngDelta = radians(to.lng - from.lng);
+  const a = Math.sin(latDelta / 2) ** 2
+    + Math.cos(radians(from.lat)) * Math.cos(radians(to.lat)) * Math.sin(lngDelta / 2) ** 2;
+  return 6_371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
 function component(result: GoogleGeocodeResult, ...types: string[]) {
@@ -113,9 +134,20 @@ export async function POST(request: Request) {
   const city = clean(payload.city, 90);
   const state = clean(payload.state, 2).toUpperCase();
   const zip = clean(payload.zip, 10);
+  const requestedIbgeId = Number(payload.ibgeId);
 
   if (!street || !number || !city || !state) {
     return NextResponse.json({ message: 'Endereço incompleto para geocodificação.' }, { status: 400 });
+  }
+
+  const municipality = Number.isInteger(requestedIbgeId)
+    ? findMunicipality(state, requestedIbgeId)
+    : findMunicipalityByName(state, city);
+  if (!municipality || normalize(municipality.name) !== normalize(city)) {
+    return NextResponse.json(
+      { code: 'invalid_city', message: 'A cidade ativa não corresponde ao cadastro municipal.' },
+      { status: 422, headers: { 'Cache-Control': 'no-store' } },
+    );
   }
 
   const address = [street, number, neighborhood, zip, city, state, 'Brasil']
@@ -126,6 +158,10 @@ export async function POST(request: Request) {
   url.searchParams.set('components', 'country:BR');
   url.searchParams.set('language', 'pt-BR');
   url.searchParams.set('region', 'br');
+  url.searchParams.set(
+    'bounds',
+    `${municipality.lat - 0.35},${municipality.lng - 0.35}|${municipality.lat + 0.35},${municipality.lng + 0.35}`,
+  );
   url.searchParams.set('key', apiKey);
 
   try {
@@ -158,24 +194,33 @@ export async function POST(request: Request) {
       const returnedState = component(result, 'administrative_area_level_1')?.short_name ?? '';
       const returnedZip = component(result, 'postal_code')?.long_name ?? '';
       const checks = {
-        number: compatible(number, returnedNumber),
-        street: compatible(street, returnedStreet),
-        city: compatible(city, returnedCity),
-        state: compatible(state, returnedState),
-        zip: compatible(zip, returnedZip),
+        number: exact(number, returnedNumber),
+        street: exactStreet(street, returnedStreet),
+        city: exact(city, returnedCity),
+        state: exact(state, returnedState),
+        zip: exact(zip.replace(/\D/g, ''), returnedZip.replace(/\D/g, '')),
       };
       return { result, checks };
     });
 
-    const candidate = candidates.find(({ checks }) => Object.values(checks).every(Boolean));
+    const candidate = candidates.find(({ result, checks }) =>
+      Object.values(checks).every(Boolean)
+      && result.partial_match !== true
+      && ['ROOFTOP', 'RANGE_INTERPOLATED'].includes(result.geometry?.location_type ?? ''),
+    );
     if (!candidate) {
       const insideCity = candidates.some(({ checks }) => checks.city && checks.state);
+      const addressMatchedWithoutPrecision = candidates.some(({ checks }) => Object.values(checks).every(Boolean));
       return NextResponse.json(
         {
-          code: insideCity ? 'imprecise_address' : 'outside_active_city',
-          message: insideCity
-            ? 'O Google não confirmou rua e número dentro da cidade ativa.'
-            : 'O resultado não pertence à cidade e UF selecionadas.',
+          code: addressMatchedWithoutPrecision
+            ? 'insufficient_precision'
+            : insideCity ? 'imprecise_address' : 'outside_active_city',
+          message: addressMatchedWithoutPrecision
+            ? 'O Google encontrou o endereço, mas sem precisão suficiente para marcar a residência.'
+            : insideCity
+              ? 'O Google não confirmou exatamente a rua e o número dentro da cidade ativa.'
+              : 'O resultado não pertence à cidade e UF selecionadas.',
         },
         { status: 422, headers: { 'Cache-Control': 'no-store' } },
       );
@@ -187,16 +232,21 @@ export async function POST(request: Request) {
     if (typeof lat !== 'number' || typeof lng !== 'number' || !Number.isFinite(lat) || !Number.isFinite(lng)) {
       return NextResponse.json({ code: 'not_found', message: 'Coordenadas não retornadas.' }, { status: 404 });
     }
+    if (distanceKm({ lat: municipality.lat, lng: municipality.lng }, { lat, lng }) > 150) {
+      return NextResponse.json(
+        { code: 'outside_active_city', message: 'As coordenadas retornadas estão longe da cidade ativa.' },
+        { status: 422, headers: { 'Cache-Control': 'no-store' } },
+      );
+    }
 
     const locationType = result.geometry?.location_type ?? 'UNKNOWN';
-    const exact = locationType === 'ROOFTOP'
-      && result.partial_match !== true
+    const isRooftop = locationType === 'ROOFTOP'
       && Object.values(checks).every(Boolean);
 
     return NextResponse.json({
       lat,
       lng,
-      quality: exact ? 'exata' : 'aproximada',
+      quality: isRooftop ? 'exata' : 'aproximada',
       locationType,
       partialMatch: result.partial_match === true,
       checks,
