@@ -86,7 +86,7 @@ export async function POST(request: Request) {
 
   const url = new URL('https://maps.googleapis.com/maps/api/geocode/json');
   url.searchParams.set('address', `${city}, ${state}, Brasil`);
-  url.searchParams.set('components', `locality:${city}|administrative_area:${state}|country:BR`);
+  url.searchParams.set('components', 'country:BR');
   url.searchParams.set('language', 'pt-BR');
   url.searchParams.set('region', 'br');
   url.searchParams.set('key', apiKey);
