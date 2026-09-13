@@ -3,33 +3,36 @@ import { NextResponse } from 'next/server';
 interface CityLookupPayload {
   city?: string;
   state?: string;
+  ibgeId?: number;
 }
 
-interface GoogleAddressComponent {
-  long_name: string;
-  short_name: string;
-  types: string[];
+interface IbgeMunicipality {
+  id?: number;
+  nome?: string;
 }
 
-interface GoogleCityResult {
-  address_components?: GoogleAddressComponent[];
-  geometry?: {
-    location?: { lat?: number; lng?: number };
-    bounds?: {
-      northeast?: { lat?: number; lng?: number };
-      southwest?: { lat?: number; lng?: number };
-    };
-    viewport?: {
-      northeast?: { lat?: number; lng?: number };
-      southwest?: { lat?: number; lng?: number };
-    };
-  };
+type Position = [number, number];
+
+interface IbgeGeometry {
+  type?: 'Polygon' | 'MultiPolygon';
+  coordinates?: Position[][] | Position[][][];
 }
 
-interface GoogleCityResponse {
-  status?: string;
-  results?: GoogleCityResult[];
+interface IbgeFeature {
+  type?: 'Feature';
+  geometry?: IbgeGeometry;
 }
+
+interface IbgeFeatureCollection {
+  type?: 'FeatureCollection';
+  features?: IbgeFeature[];
+}
+
+const BRAZILIAN_STATES = new Set([
+  'AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MT', 'MS',
+  'MG', 'PA', 'PB', 'PR', 'PE', 'PI', 'RJ', 'RN', 'RS', 'RO', 'RR', 'SC',
+  'SP', 'SE', 'TO',
+]);
 
 function clean(value: unknown, maxLength: number) {
   return typeof value === 'string'
@@ -45,27 +48,16 @@ function normalize(value: string) {
     .replace(/[^a-z0-9]/g, '');
 }
 
-function component(result: GoogleCityResult, type: string) {
-  return result.address_components?.find((item) => item.types.includes(type));
-}
-
-function cityName(result: GoogleCityResult) {
-  return component(result, 'locality')?.long_name
-    || component(result, 'postal_town')?.long_name
-    || component(result, 'administrative_area_level_2')?.long_name
-    || '';
+function geometryRings(geometry: IbgeGeometry | undefined): Position[][] {
+  if (!geometry?.coordinates) return [];
+  if (geometry.type === 'Polygon') return geometry.coordinates as Position[][];
+  if (geometry.type === 'MultiPolygon') {
+    return (geometry.coordinates as Position[][][]).flatMap((polygon) => polygon);
+  }
+  return [];
 }
 
 export async function POST(request: Request) {
-  const apiKey = process.env.GOOGLE_MAPS_GEOCODING_KEY;
-  const browserKey = process.env.GOOGLE_MAPS_BROWSER_KEY;
-  if (!apiKey || !browserKey) {
-    return NextResponse.json(
-      { code: 'google_maps_not_configured', message: 'Google Maps Platform ainda não foi configurado.' },
-      { status: 503, headers: { 'Cache-Control': 'no-store' } },
-    );
-  }
-
   const contentLength = Number(request.headers.get('content-length') ?? 0);
   if (contentLength > 1024) {
     return NextResponse.json({ message: 'Requisição muito grande.' }, { status: 413 });
@@ -80,81 +72,78 @@ export async function POST(request: Request) {
 
   const city = clean(payload.city, 90);
   const state = clean(payload.state, 2).toUpperCase();
-  if (!city || !state) {
-    return NextResponse.json({ message: 'Informe cidade e UF.' }, { status: 400 });
+  const ibgeId = Number(payload.ibgeId);
+  if (!city || !BRAZILIAN_STATES.has(state) || !Number.isInteger(ibgeId) || ibgeId < 1_000_000) {
+    return NextResponse.json({ message: 'Selecione um município válido da lista do IBGE.' }, { status: 400 });
   }
 
-  const url = new URL('https://maps.googleapis.com/maps/api/geocode/json');
-  url.searchParams.set('address', `${city}, ${state}, Brasil`);
-  url.searchParams.set('components', 'country:BR');
-  url.searchParams.set('language', 'pt-BR');
-  url.searchParams.set('region', 'br');
-  url.searchParams.set('key', apiKey);
+  const municipalitiesUrl = new URL(
+    `https://servicodados.ibge.gov.br/api/v1/localidades/estados/${state}/municipios`,
+  );
+  municipalitiesUrl.searchParams.set('orderBy', 'nome');
+  const boundaryUrl = new URL(
+    `https://servicodados.ibge.gov.br/api/v3/malhas/municipios/${ibgeId}`,
+  );
+  boundaryUrl.searchParams.set('formato', 'application/vnd.geo+json');
+  boundaryUrl.searchParams.set('qualidade', 'minima');
 
   try {
-    const response = await fetch(url, { cache: 'no-store' });
-    if (!response.ok) {
-      return NextResponse.json({ message: 'Google Geocoding indisponível.' }, { status: 502 });
+    const [municipalitiesResponse, boundaryResponse] = await Promise.all([
+      fetch(municipalitiesUrl, { cache: 'force-cache' }),
+      fetch(boundaryUrl, { cache: 'force-cache' }),
+    ]);
+    if (!municipalitiesResponse.ok || !boundaryResponse.ok) {
+      return NextResponse.json({ message: 'A API do IBGE está temporariamente indisponível.' }, { status: 502 });
     }
 
-    const data = await response.json() as GoogleCityResponse;
-    if (data.status === 'ZERO_RESULTS' || !data.results?.length) {
+    const municipalities = await municipalitiesResponse.json() as IbgeMunicipality[];
+    const officialCity = municipalities.find(
+      (item) => item.id === ibgeId && typeof item.nome === 'string' && normalize(item.nome) === normalize(city),
+    );
+    if (!officialCity?.nome) {
       return NextResponse.json(
-        { code: 'city_not_found', message: 'Cidade não encontrada pelo Google.' },
-        { status: 404, headers: { 'Cache-Control': 'no-store' } },
-      );
-    }
-    if (data.status === 'OVER_QUERY_LIMIT') {
-      return NextResponse.json(
-        { code: 'quota_exceeded', message: 'Limite temporário do Google atingido.' },
-        { status: 429, headers: { 'Cache-Control': 'no-store', 'Retry-After': '60' } },
-      );
-    }
-    if (data.status !== 'OK') {
-      return NextResponse.json(
-        { code: 'google_request_denied', message: 'A chave de teste não foi aceita pela Geocoding API.' },
-        { status: 502, headers: { 'Cache-Control': 'no-store' } },
+        { code: 'city_mismatch', message: 'O município não pertence à UF selecionada.' },
+        { status: 422 },
       );
     }
 
-    const result = data.results.find((item) => {
-      const returnedCity = cityName(item);
-      const returnedState = component(item, 'administrative_area_level_1')?.short_name ?? '';
-      return normalize(returnedCity) === normalize(city) && normalize(returnedState) === normalize(state);
-    });
-    const lat = result?.geometry?.location?.lat;
-    const lng = result?.geometry?.location?.lng;
-    const viewport = result?.geometry?.bounds ?? result?.geometry?.viewport;
-    const north = viewport?.northeast?.lat;
-    const east = viewport?.northeast?.lng;
-    const south = viewport?.southwest?.lat;
-    const west = viewport?.southwest?.lng;
+    const rawBoundary = await boundaryResponse.json() as IbgeFeature | IbgeFeature[] | IbgeFeatureCollection;
+    const features = Array.isArray(rawBoundary)
+      ? rawBoundary
+      : rawBoundary.type === 'FeatureCollection'
+        ? rawBoundary.features ?? []
+        : [rawBoundary as IbgeFeature];
+    const feature = features
+      .find((item) => item?.geometry);
+    const rings = geometryRings(feature?.geometry);
+    const points = rings.flat();
+    if (!points.length) {
+      return NextResponse.json({ message: 'O IBGE não retornou a malha desse município.' }, { status: 502 });
+    }
 
-    if (
-      !result
-      || typeof lat !== 'number'
-      || typeof lng !== 'number'
-      || typeof north !== 'number'
-      || typeof east !== 'number'
-      || typeof south !== 'number'
-      || typeof west !== 'number'
-    ) {
-      return NextResponse.json(
-        { code: 'city_mismatch', message: 'O resultado do Google não confirma a cidade e a UF informadas.' },
-        { status: 422, headers: { 'Cache-Control': 'no-store' } },
-      );
+    const longitudes = points.map(([lng]) => lng).filter(Number.isFinite);
+    const latitudes = points.map(([, lat]) => lat).filter(Number.isFinite);
+    const west = Math.min(...longitudes);
+    const east = Math.max(...longitudes);
+    const south = Math.min(...latitudes);
+    const north = Math.max(...latitudes);
+    if (![west, east, south, north].every(Number.isFinite)) {
+      return NextResponse.json({ message: 'A malha do município é inválida.' }, { status: 502 });
     }
 
     return NextResponse.json({
-      name: cityName(result),
+      ibgeId,
+      name: officialCity.nome,
       state,
-      center: { lat, lng },
+      center: { lat: (north + south) / 2, lng: (east + west) / 2 },
       bounds: { north, south, east, west },
-    }, { headers: { 'Cache-Control': 'no-store' } });
+      boundary: rings.map((ring) => ring.map(([lng, lat]) => ({ lat, lng }))),
+      source: 'IBGE',
+    }, { headers: { 'Cache-Control': 'public, max-age=86400, stale-while-revalidate=604800' } });
   } catch {
     return NextResponse.json(
-      { message: 'Falha temporária ao validar a cidade.' },
-      { status: 502, headers: { 'Cache-Control': 'no-store' } },
+      { message: 'Falha temporária ao consultar a malha do município no IBGE.' },
+      { status: 502 },
     );
   }
 }

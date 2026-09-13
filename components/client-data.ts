@@ -3,10 +3,12 @@ export type ClientStatus = 'Ativo' | 'Instalação' | 'Atenção' | 'Inativo' | 
 export type LocationQuality = 'exata' | 'aproximada' | 'informada' | 'pendente';
 
 export interface CityProfile {
+  ibgeId?: number;
   name: string;
   state: string;
   center?: { lat: number; lng: number };
   bounds?: { north: number; south: number; east: number; west: number };
+  boundary?: Array<Array<{ lat: number; lng: number }>>;
 }
 
 export interface ClientRecord {

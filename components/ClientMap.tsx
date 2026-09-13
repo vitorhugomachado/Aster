@@ -33,7 +33,7 @@ function loadGoogleMaps(apiKey: string) {
 export function ClientMap({ clients, cityProfile, selectedId, onSelect }: ClientMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const googleMapRef = useRef<google.maps.Map | null>(null);
-  const googleOverlaysRef = useRef<google.maps.Circle[]>([]);
+  const googleOverlaysRef = useRef<Array<google.maps.Circle | google.maps.Polygon>>([]);
   const leafletMapRef = useRef<LeafletMap | null>(null);
   const leafletLayerRef = useRef<LayerGroup | null>(null);
   const leafletRef = useRef<typeof import('leaflet') | null>(null);
@@ -144,6 +144,21 @@ export function ClientMap({ clients, cityProfile, selectedId, onSelect }: Client
       overlay.setMap(null);
     });
     googleOverlaysRef.current = [];
+
+    if (cityProfile?.boundary?.length) {
+      const boundary = new google.maps.Polygon({
+        map,
+        paths: cityProfile.boundary,
+        clickable: false,
+        strokeColor: '#0b684b',
+        strokeOpacity: 0.72,
+        strokeWeight: 2,
+        fillColor: '#0b684b',
+        fillOpacity: 0.025,
+        zIndex: 1,
+      });
+      googleOverlaysRef.current.push(boundary);
+    }
 
     const located = clients.filter(
       (client): client is ClientRecord & { lat: number; lng: number } =>

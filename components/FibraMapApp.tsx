@@ -140,7 +140,7 @@ export function FibraMapApp() {
   const [cityOpen, setCityOpen] = useState(false);
   const [newCity, setNewCity] = useState('');
   const [newCityState, setNewCityState] = useState('PR');
-  const [municipalities, setMunicipalities] = useState<string[]>([]);
+  const [municipalities, setMunicipalities] = useState<Array<{ id: number; name: string }>>([]);
   const [municipalitiesBusy, setMunicipalitiesBusy] = useState(false);
   const [cityBusy, setCityBusy] = useState(false);
   const [cityError, setCityError] = useState('');
@@ -240,11 +240,12 @@ export function FibraMapApp() {
     })
       .then(async (response) => {
         if (!response.ok) throw new Error('Falha ao carregar municípios.');
-        const result = await response.json() as { municipalities?: Array<{ name?: string }> };
+        const result = await response.json() as { municipalities?: Array<{ id?: number; name?: string }> };
         setMunicipalities(
           (result.municipalities ?? [])
-            .map((item) => item.name ?? '')
-            .filter(Boolean),
+            .filter((item): item is { id: number; name: string } =>
+              Number.isInteger(item.id) && Boolean(item.name),
+            ),
         );
       })
       .catch((error) => {
@@ -272,21 +273,23 @@ export function FibraMapApp() {
     setImportOpen(true);
   }
 
-  async function lookupCityProfile(name: string, state: string): Promise<CityProfile> {
+  async function lookupCityProfile(name: string, state: string, ibgeId: number): Promise<CityProfile> {
     const response = await fetch('/api/city-lookup', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ city: name, state }),
+      body: JSON.stringify({ city: name, state, ibgeId }),
     });
     const result = await response.json().catch(() => ({})) as Partial<CityProfile> & { message?: string };
-    if (!response.ok || !result.name || !result.state || !result.center || !result.bounds) {
-      throw new Error(result.message || 'Não foi possível confirmar essa cidade no Google.');
+    if (!response.ok || !result.ibgeId || !result.name || !result.state || !result.center || !result.bounds) {
+      throw new Error(result.message || 'Não foi possível confirmar esse município no IBGE.');
     }
     return {
+      ibgeId: result.ibgeId,
       name: result.name,
       state: result.state,
       center: result.center,
       bounds: result.bounds,
+      boundary: result.boundary,
     };
   }
 
@@ -313,7 +316,13 @@ export function FibraMapApp() {
     setCityBusy(true);
     setCityError('');
     try {
-      const profile = await lookupCityProfile(cityName, newCityState);
+      const municipality = municipalities.find(
+        (item) => normalizeKey(item.name) === normalizeKey(cityName),
+      );
+      if (!municipality) {
+        throw new Error('Selecione um município da lista oficial do IBGE.');
+      }
+      const profile = await lookupCityProfile(municipality.name, newCityState, municipality.id);
       rememberCity(profile);
       setCityOpen(false);
       setNewCity('');
@@ -412,7 +421,10 @@ export function FibraMapApp() {
           && profile.state === requestedState
           && profile.bounds,
       );
-      const importCityProfile = storedProfile ?? await lookupCityProfile(requestedCity, requestedState);
+      if (!storedProfile) {
+        throw new Error(`Cadastre e valide ${requestedCity}/${requestedState} antes de importar.`);
+      }
+      const importCityProfile = storedProfile;
       rememberCity(importCityProfile);
       const fallbackCity = importCityProfile.name;
       const inferredState = importCityProfile.state;
@@ -900,7 +912,7 @@ export function FibraMapApp() {
               <div><span className="eyebrow">Área de trabalho</span><h2 id="city-title">Cadastrar cidade</h2></div>
               <button onClick={() => setCityOpen(false)} disabled={cityBusy} aria-label="Fechar"><X size={18} /></button>
             </header>
-            <p className="city-help">Selecione a UF e escolha qualquer município da lista oficial do IBGE. O Google validará a área antes da importação.</p>
+            <p className="city-help">Selecione a UF e escolha qualquer município da lista oficial do IBGE. O próprio IBGE validará a cidade e fornecerá seus limites; o Google será usado apenas para localizar rua e número.</p>
             <div className="city-fields">
               <label><span>UF</span><select value={newCityState} onChange={(event) => { setMunicipalitiesBusy(true); setNewCityState(event.target.value); setNewCity(''); }} autoFocus>{BRAZILIAN_STATES.map((item) => <option key={item}>{item}</option>)}</select></label>
               <label>
@@ -912,7 +924,7 @@ export function FibraMapApp() {
                   placeholder={municipalitiesBusy ? 'Carregando municípios…' : 'Ex.: Guaporema'}
                 />
                 <datalist id="municipality-options">
-                  {municipalities.map((item) => <option key={item} value={item} />)}
+                  {municipalities.map((item) => <option key={item.id} value={item.name} />)}
                 </datalist>
               </label>
             </div>
