@@ -35,6 +35,7 @@ import {
   X,
 } from 'lucide-react';
 import { ClientMap } from './ClientMap';
+import paranaMunicipalities from './pr-municipalities.json';
 import {
   CityProfile,
   ClientRecord,
@@ -74,16 +75,14 @@ const STATUS_OPTIONS: Array<ClientStatus | 'Todos'> = [
   'Pendente',
 ];
 
-const BRAZILIAN_STATES = [
-  'AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MT', 'MS',
-  'MG', 'PA', 'PB', 'PR', 'PE', 'PI', 'RJ', 'RN', 'RS', 'RO', 'RR', 'SC',
-  'SP', 'SE', 'TO',
-];
+const PARANA_STATE = 'PR';
+const MUNICIPALITIES = paranaMunicipalities as MunicipalityOption[];
 
 const DEFAULT_CITY_PROFILE: CityProfile = {
-  name: 'São Paulo',
-  state: 'SP',
-  center: { lat: -23.5505, lng: -46.6333 },
+  ibgeId: 4109104,
+  name: 'Guaporema',
+  state: 'PR',
+  center: { lat: -23.3402, lng: -52.7786 },
 };
 
 function asNumber(value: unknown) {
@@ -140,13 +139,10 @@ export function FibraMapApp() {
   const [clients, setClients] = useState<ClientRecord[]>(DEMO_CLIENTS);
   const [view, setView] = useState<ViewName>('mapa');
   const [query, setQuery] = useState('');
-  const [city, setCity] = useState('São Paulo');
+  const [city, setCity] = useState(DEFAULT_CITY_PROFILE.name);
   const [cityProfiles, setCityProfiles] = useState<CityProfile[]>([DEFAULT_CITY_PROFILE]);
   const [cityOpen, setCityOpen] = useState(false);
   const [newCity, setNewCity] = useState('');
-  const [newCityState, setNewCityState] = useState('PR');
-  const [municipalities, setMunicipalities] = useState<MunicipalityOption[]>([]);
-  const [municipalitiesBusy, setMunicipalitiesBusy] = useState(false);
   const [selectedMunicipalityId, setSelectedMunicipalityId] = useState<number | null>(null);
   const [citySuggestionsOpen, setCitySuggestionsOpen] = useState(false);
   const [citySuggestionIndex, setCitySuggestionIndex] = useState(0);
@@ -167,6 +163,8 @@ export function FibraMapApp() {
   const [toast, setToast] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  const newCityState = PARANA_STATE;
+  const municipalities = MUNICIPALITIES;
 
   const cities = useMemo(
     () => [...cityProfiles].sort((left, right) => left.name.localeCompare(right.name, 'pt-BR')),
@@ -252,37 +250,9 @@ export function FibraMapApp() {
     return () => window.clearTimeout(timer);
   }, [toast]);
 
-  useEffect(() => {
-    if (!cityOpen || !newCityState) return;
-    const controller = new AbortController();
-    fetch(`/api/municipalities?state=${encodeURIComponent(newCityState)}`, {
-      signal: controller.signal,
-      cache: 'force-cache',
-    })
-      .then(async (response) => {
-        if (!response.ok) throw new Error('Falha ao carregar municípios.');
-        const result = await response.json() as { municipalities?: Array<{ id?: number; name?: string }> };
-        setMunicipalities(
-          (result.municipalities ?? [])
-            .filter((item): item is { id: number; name: string } =>
-              Number.isInteger(item.id) && Boolean(item.name),
-            ),
-        );
-      })
-      .catch((error) => {
-        if (error instanceof DOMException && error.name === 'AbortError') return;
-        setMunicipalities([]);
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setMunicipalitiesBusy(false);
-      });
-    return () => controller.abort();
-  }, [cityOpen, newCityState]);
-
   function openImporter() {
     if (!activeCityProfile) {
       setCityError('');
-      setMunicipalitiesBusy(true);
       setCityOpen(true);
       return;
     }
@@ -615,7 +585,7 @@ export function FibraMapApp() {
     } catch {
       return {
         ...base,
-        pendingReason: 'Falha temporária ao consultar o Google.',
+        pendingReason: 'Falha temporária ao localizar o endereço.',
         locationQuality: 'pendente',
       };
     }
@@ -677,14 +647,14 @@ export function FibraMapApp() {
     setView('mapa');
     setToast(mapped
       ? `${mapped} cliente${mapped === 1 ? '' : 's'} confirmado${mapped === 1 ? '' : 's'} em ${activeCityProfile.name}/${activeCityProfile.state}${pending ? ` · ${pending} aguardando revisão` : ''}${rejected ? ` · ${rejected} com erro` : ''}.`
-      : `Nenhum endereço foi confirmado em ${activeCityProfile.name}/${activeCityProfile.state}. Verifique a chave do Google e os registros pendentes.`);
+      : `Nenhum endereço foi confirmado em ${activeCityProfile.name}/${activeCityProfile.state}. Verifique os registros pendentes.`);
   }
 
   function resetDemo() {
     setClients(DEMO_CLIENTS);
     setCityProfiles([DEFAULT_CITY_PROFILE]);
     setHistory([]);
-    setCity('São Paulo');
+    setCity(DEFAULT_CITY_PROFILE.name);
     setStatus('Todos');
     setPlan('Todos');
     setQuery('');
@@ -750,7 +720,9 @@ export function FibraMapApp() {
           className="add-city-button"
           onClick={() => {
             setCityError('');
-            setMunicipalitiesBusy(true);
+            setNewCity('');
+            setSelectedMunicipalityId(null);
+            setCitySuggestionsOpen(false);
             setCityOpen(true);
           }}
         >
@@ -827,7 +799,7 @@ export function FibraMapApp() {
               <span><i className="dot alert-dot" />Atenção</span>
               <span><i className="dot inactive-dot" />Inativo</span>
             </div>
-            <div className="privacy-note"><ShieldCheck size={16} /><span><b>Demonstração segura</b> O arquivo fica somente nesta sessão. Com o Google ativo, apenas os componentes do endereço são enviados para localização.</span></div>
+            <div className="privacy-note"><ShieldCheck size={16} /><span><b>Demonstração segura</b> O arquivo fica somente nesta sessão. A localização consulta primeiro a base oficial de endereços do IBGE; o Google é usado como complemento.</span></div>
           </>
         )}
 
@@ -934,7 +906,7 @@ export function FibraMapApp() {
                   ))}
                 </tbody></table>{importPreview.rows.length > 6 && <div className="more-rows">Mais {importPreview.rows.length - 6} linhas não exibidas na prévia.</div>}</div>
                 {importError && <div className="error-box"><AlertTriangle size={16} />{importError}</div>}
-                <p className="geocode-note"><ShieldCheck size={15} />A busca está limitada a {importCityOverride}/{importStateOverride}. Resultados que não confirmem cidade, rua e número ficam pendentes e nunca são colocados no centro do estado.</p>
+                <p className="geocode-note"><ShieldCheck size={15} />A busca está limitada a {importCityOverride}/{importStateOverride}. O IBGE é consultado primeiro e o Google complementa a busca. Resultados que não confirmem cidade, rua e número ficam pendentes e nunca são colocados no centro do estado.</p>
                 <footer className="modal-actions"><button className="secondary-action" onClick={() => setImportPreview(null)} disabled={importBusy}>Voltar</button><button className="primary-action" onClick={() => void confirmImport()} disabled={importBusy || previewImportable === 0}>{importBusy ? <><LoaderCircle className="spin" size={15} />Processando…</> : <>Importar {previewImportable} clientes</>}</button></footer>
               </>
             )}
@@ -949,9 +921,9 @@ export function FibraMapApp() {
               <div><span className="eyebrow">Área de trabalho</span><h2 id="city-title">Cadastrar cidade</h2></div>
               <button onClick={() => setCityOpen(false)} disabled={cityBusy} aria-label="Fechar"><X size={18} /></button>
             </header>
-            <p className="city-help">Selecione a UF e escolha qualquer município da lista oficial do IBGE. O próprio IBGE validará a cidade e fornecerá seus limites; o Google será usado apenas para localizar rua e número.</p>
+            <p className="city-help">O sistema está configurado para o Paraná. Digite o nome e selecione um dos 399 municípios da lista oficial do IBGE.</p>
             <div className="city-fields">
-              <label><span>UF</span><select value={newCityState} onChange={(event) => { setMunicipalitiesBusy(true); setSelectedMunicipalityId(null); setCitySuggestionsOpen(false); setNewCityState(event.target.value); setNewCity(''); }} autoFocus>{BRAZILIAN_STATES.map((item) => <option key={item}>{item}</option>)}</select></label>
+              <div className="state-fixed"><span>Estado</span><b>Paraná</b><small>PR</small></div>
               <div className="city-field municipality-field">
                 <label htmlFor="municipality-search">Município</label>
                 <div className="municipality-input">
@@ -993,17 +965,15 @@ export function FibraMapApp() {
                         setCitySuggestionsOpen(false);
                       }
                     }}
-                    placeholder={municipalitiesBusy ? 'Carregando municípios…' : 'Digite o nome da cidade'}
-                    disabled={municipalitiesBusy}
+                    placeholder="Digite o nome da cidade"
                     autoComplete="off"
+                    autoFocus
                   />
                   <ChevronDown size={14} aria-hidden="true" />
                 </div>
                 {citySuggestionsOpen && (
                   <div className="municipality-options" id="municipality-options" role="listbox">
-                    {municipalitiesBusy ? (
-                      <div className="municipality-message"><LoaderCircle className="spin" size={14} />Carregando cidades…</div>
-                    ) : filteredMunicipalities.length ? filteredMunicipalities.map((item, index) => (
+                    {filteredMunicipalities.length ? filteredMunicipalities.map((item, index) => (
                       <button
                         id={`municipality-${item.id}`}
                         key={item.id}
@@ -1017,7 +987,7 @@ export function FibraMapApp() {
                         <span>{item.name}</span><small>{newCityState} · IBGE {item.id}</small>
                       </button>
                     )) : (
-                      <div className="municipality-message">Nenhuma cidade encontrada em {newCityState}.</div>
+                      <div className="municipality-message">Nenhum município do Paraná corresponde à busca.</div>
                     )}
                   </div>
                 )}
@@ -1026,7 +996,7 @@ export function FibraMapApp() {
             {cityError && <div className="error-box"><AlertTriangle size={16} />{cityError}</div>}
             <footer className="modal-actions">
               <button className="secondary-action" onClick={() => setCityOpen(false)} disabled={cityBusy}>Cancelar</button>
-              <button className="primary-action" onClick={() => void addCity()} disabled={cityBusy || municipalitiesBusy || selectedMunicipalityId === null}>
+              <button className="primary-action" onClick={() => void addCity()} disabled={cityBusy || selectedMunicipalityId === null}>
                 {cityBusy ? <><LoaderCircle className="spin" size={15} />Validando…</> : <><MapPin size={15} />Validar e cadastrar</>}
               </button>
             </footer>

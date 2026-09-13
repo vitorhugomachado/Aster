@@ -203,10 +203,14 @@ table { width: 100%; border-collapse: collapse; }
 .import-modal > header > button { display: grid; place-items: center; width: 32px; height: 32px; border: 0; border-radius: 8px; background: #f2f5f3; color: #6f7d77; }
 .city-modal { width: min(520px, 100%); }
 .city-help { margin: 16px 0 0; color: var(--muted); font-size: 10px; line-height: 1.55; }
-.city-fields { display: grid; grid-template-columns: 100px minmax(0, 1fr); gap: 9px; margin-top: 16px; }
-.city-fields > label, .city-field { display: block; border: 1px solid #d7e2dc; border-radius: 9px; background: #fff; padding: 9px 10px; }
+.city-fields { display: grid; grid-template-columns: 118px minmax(0, 1fr); gap: 9px; margin-top: 16px; }
+.city-fields > label, .city-field, .state-fixed { display: block; border: 1px solid #d7e2dc; border-radius: 9px; background: #fff; padding: 9px 10px; }
 .city-fields > label > span, .city-field > label { display: block; margin-bottom: 5px; color: #74847c; font-size: 7px; font-weight: 750; text-transform: uppercase; letter-spacing: .07em; }
 .city-fields input, .city-fields select { width: 100%; border: 0; outline: 0; background: transparent; font-size: 11px; font-weight: 700; }
+.state-fixed { position: relative; }
+.state-fixed > span { display: block; margin-bottom: 5px; color: #74847c; font-size: 7px; font-weight: 750; text-transform: uppercase; letter-spacing: .07em; }
+.state-fixed > b { display: block; padding-right: 24px; font-size: 11px; }
+.state-fixed > small { position: absolute; right: 10px; bottom: 10px; color: var(--green); font-size: 8px; font-weight: 800; }
 .municipality-field { position: relative; }
 .municipality-input { display: flex; align-items: center; gap: 7px; }
 .municipality-input svg { flex: 0 0 auto; color: #72837a; }

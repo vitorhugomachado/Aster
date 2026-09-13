@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { lookupCnefeAddress } from '../../data/cnefe';
 import { findMunicipality, findMunicipalityByName } from '../../data/municipalities';
 
 interface GeocodePayload {
@@ -101,15 +102,6 @@ function allowRequest(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const apiKey = process.env.GOOGLE_MAPS_GEOCODING_KEY;
-  const browserKey = process.env.GOOGLE_MAPS_BROWSER_KEY;
-  if (!apiKey || !browserKey) {
-    return NextResponse.json(
-      { code: 'geocoder_not_configured', message: 'Google Maps Platform ainda não foi configurado.' },
-      { status: 503, headers: { 'Cache-Control': 'no-store' } },
-    );
-  }
-
   const contentLength = Number(request.headers.get('content-length') ?? 0);
   if (contentLength > 4096) {
     return NextResponse.json({ message: 'Requisição muito grande.' }, { status: 413 });
@@ -147,6 +139,36 @@ export async function POST(request: Request) {
     return NextResponse.json(
       { code: 'invalid_city', message: 'A cidade ativa não corresponde ao cadastro municipal.' },
       { status: 422, headers: { 'Cache-Control': 'no-store' } },
+    );
+  }
+
+  const cnefeMatch = await lookupCnefeAddress(
+    municipality.id,
+    street,
+    number,
+    neighborhood,
+    zip,
+  );
+  if (cnefeMatch) {
+    return NextResponse.json({
+      lat: cnefeMatch.lat,
+      lng: cnefeMatch.lng,
+      quality: 'exata',
+      locationType: 'IBGE_CNEFE',
+      source: 'IBGE_CNEFE',
+      partialMatch: false,
+      checks: { number: true, street: true, city: true, state: true, zip: true },
+      formattedAddress: `${cnefeMatch.matchedAddress}, ${municipality.name} - ${state}, Brasil`,
+      matchedPoints: cnefeMatch.matchedPoints,
+    }, { headers: { 'Cache-Control': 'no-store' } });
+  }
+
+  const apiKey = process.env.GOOGLE_MAPS_GEOCODING_KEY;
+  const browserKey = process.env.GOOGLE_MAPS_BROWSER_KEY;
+  if (!apiKey || !browserKey) {
+    return NextResponse.json(
+      { code: 'geocoder_not_configured', message: 'O endereço não está na base do IBGE e o Google Maps ainda não foi configurado.' },
+      { status: 503, headers: { 'Cache-Control': 'no-store' } },
     );
   }
 
@@ -248,6 +270,7 @@ export async function POST(request: Request) {
       lng,
       quality: isRooftop ? 'exata' : 'aproximada',
       locationType,
+      source: 'GOOGLE',
       partialMatch: result.partial_match === true,
       checks,
       formattedAddress: result.formatted_address ?? '',

@@ -59,50 +59,50 @@ export const STATUS_COLORS: Record<ClientStatus, string> = {
 export const DEMO_CLIENTS: ClientRecord[] = [
   {
     id: 'CLI-001', name: 'Cliente 001', street: 'Rua das Acácias', number: '184',
-    complement: '', neighborhood: 'Jardins', city: 'São Paulo', state: 'SP', zip: '01418-000',
-    status: 'Ativo', plan: '600 Mega', lat: -23.5676, lng: -46.6572,
+    complement: '', neighborhood: 'Centro', city: 'Guaporema', state: 'PR', zip: '',
+    status: 'Ativo', plan: '600 Mega', lat: -23.3421, lng: -52.7754,
     locationQuality: 'informada', source: 'demo',
   },
   {
     id: 'CLI-002', name: 'Cliente 002', street: 'Alameda Horizonte', number: '92',
-    complement: 'Apto. 34', neighborhood: 'Bela Vista', city: 'São Paulo', state: 'SP', zip: '01310-100',
-    status: 'Ativo', plan: '400 Mega', lat: -23.5619, lng: -46.6488,
+    complement: 'Casa 2', neighborhood: 'Centro', city: 'Guaporema', state: 'PR', zip: '',
+    status: 'Ativo', plan: '400 Mega', lat: -23.3417, lng: -52.7767,
     locationQuality: 'informada', source: 'demo',
   },
   {
     id: 'CLI-003', name: 'Cliente 003', street: 'Rua do Bosque', number: '415',
-    complement: '', neighborhood: 'Paraíso', city: 'São Paulo', state: 'SP', zip: '04002-002',
-    status: 'Instalação', plan: '800 Mega', lat: -23.5742, lng: -46.6424,
+    complement: '', neighborhood: 'Centro', city: 'Guaporema', state: 'PR', zip: '',
+    status: 'Instalação', plan: '800 Mega', lat: -23.3355, lng: -52.7741,
     locationQuality: 'informada', source: 'demo',
   },
   {
     id: 'CLI-004', name: 'Cliente 004', street: 'Avenida Central', number: '710',
-    complement: 'Loja 2', neighborhood: 'Liberdade', city: 'São Paulo', state: 'SP', zip: '01503-000',
-    status: 'Ativo', plan: '1 Giga', lat: -23.5568, lng: -46.6362,
+    complement: 'Loja 2', neighborhood: 'Centro', city: 'Guaporema', state: 'PR', zip: '',
+    status: 'Ativo', plan: '1 Giga', lat: -23.3388, lng: -52.7802,
     locationQuality: 'informada', source: 'demo',
   },
   {
     id: 'CLI-005', name: 'Cliente 005', street: 'Rua Primavera', number: '51',
-    complement: '', neighborhood: 'Consolação', city: 'São Paulo', state: 'SP', zip: '01303-050',
-    status: 'Atenção', plan: '500 Mega', lat: -23.5507, lng: -46.6547,
+    complement: '', neighborhood: 'Centro', city: 'Guaporema', state: 'PR', zip: '',
+    status: 'Atenção', plan: '500 Mega', lat: -23.3442, lng: -52.7798,
     locationQuality: 'aproximada', source: 'demo',
   },
   {
     id: 'CLI-006', name: 'Cliente 006', street: 'Rua das Palmeiras', number: '288',
-    complement: 'Casa 2', neighborhood: 'Vila Mariana', city: 'São Paulo', state: 'SP', zip: '04102-000',
-    status: 'Ativo', plan: '700 Mega', lat: -23.5841, lng: -46.6358,
+    complement: 'Casa 2', neighborhood: 'Centro', city: 'Guaporema', state: 'PR', zip: '',
+    status: 'Ativo', plan: '700 Mega', lat: -23.3374, lng: -52.7769,
     locationQuality: 'informada', source: 'demo',
   },
   {
     id: 'CLI-007', name: 'Cliente 007', street: 'Travessa Ipê', number: '19',
-    complement: '', neighborhood: 'Aclimação', city: 'São Paulo', state: 'SP', zip: '01531-010',
-    status: 'Instalação', plan: '500 Mega', lat: -23.5711, lng: -46.6269,
+    complement: '', neighborhood: 'Centro', city: 'Guaporema', state: 'PR', zip: '',
+    status: 'Instalação', plan: '500 Mega', lat: -23.3408, lng: -52.7821,
     locationQuality: 'informada', source: 'demo',
   },
   {
     id: 'CLI-008', name: 'Cliente 008', street: 'Alameda Aurora', number: '133',
-    complement: '', neighborhood: 'Pinheiros', city: 'São Paulo', state: 'SP', zip: '05422-010',
-    status: 'Inativo', plan: '300 Mega', lat: -23.5645, lng: -46.6858,
+    complement: '', neighborhood: 'Centro', city: 'Guaporema', state: 'PR', zip: '',
+    status: 'Inativo', plan: '300 Mega', lat: -23.3460, lng: -52.7772,
     locationQuality: 'informada', source: 'demo',
   },
 ];
@@ -152,5 +152,5 @@ export const HEADER_ALIASES = {
 
 export const TEMPLATE_CSV = [
   'nome,logradouro,numero,cliente_id,complemento,bairro,cidade,uf,cep,status_cliente,plano,latitude,longitude',
-  'Cliente exemplo,Rua Exemplo,120,CLI-1001,,Centro,São Paulo,SP,01000-000,Ativo,600 Mega,-23.5505,-46.6333',
+  'Cliente exemplo,Rua Exemplo,120,CLI-1001,,Centro,Guaporema,PR,,Ativo,600 Mega,,',
 ].join('\r\n');
