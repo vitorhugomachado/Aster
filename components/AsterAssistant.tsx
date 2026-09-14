@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import { Bot, LoaderCircle, Send, ShieldCheck, Sparkles, X } from 'lucide-react';
 import type { CityProfile, ClientRecord, ImportBatch, RuralClientGroup } from './client-data';
+import { WatermelonButton, WatermelonSheet, WatermelonTextarea } from './watermelon-system';
 
 interface ChatMessage {
   id: string;
@@ -142,11 +143,11 @@ export function AsterAssistant({ open, city, clients, groups, imports, onClose }
     <div className="assistant-backdrop" role="presentation" onMouseDown={(event) => {
       if (event.target === event.currentTarget) onClose();
     }}>
-      <aside className="assistant-panel" role="dialog" aria-modal="true" aria-labelledby="aster-assistant-title">
+      <WatermelonSheet className="assistant-panel" role="dialog" aria-modal="true" aria-labelledby="aster-assistant-title">
         <header className="assistant-header">
           <span className="assistant-orb"><Sparkles size={18} /></span>
           <div><small>Gemini · cidade ativa</small><h2 id="aster-assistant-title">Aster IA</h2></div>
-          <button onClick={onClose} aria-label="Fechar assistente"><X size={19} /></button>
+          <WatermelonButton onClick={onClose} aria-label="Fechar assistente"><X size={19} /></WatermelonButton>
         </header>
 
         <div className="assistant-context">
@@ -160,7 +161,7 @@ export function AsterAssistant({ open, city, clients, groups, imports, onClose }
               <h3>Pesquise sua operação</h3>
               <p>Pergunte sobre clientes, endereços, planos, grupos rurais e histórico de importações desta cidade.</p>
               <div className="assistant-starters">
-                {STARTERS.map((starter) => <button key={starter} onClick={() => void ask(starter)}>{starter}</button>)}
+                {STARTERS.map((starter) => <WatermelonButton key={starter} onClick={() => void ask(starter)}>{starter}</WatermelonButton>)}
               </div>
             </div>
           )}
@@ -177,7 +178,7 @@ export function AsterAssistant({ open, city, clients, groups, imports, onClose }
 
         <div className="assistant-privacy"><ShieldCheck size={13} />Os dados necessários desta cidade são enviados ao Gemini somente para responder à pergunta.</div>
         <form className="assistant-composer" onSubmit={submit}>
-          <textarea
+          <WatermelonTextarea
             ref={inputRef}
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
@@ -192,9 +193,9 @@ export function AsterAssistant({ open, city, clients, groups, imports, onClose }
             rows={1}
             maxLength={4000}
           />
-          <button type="submit" disabled={busy || !draft.trim()} aria-label="Enviar pergunta"><Send size={17} /></button>
+          <WatermelonButton type="submit" disabled={busy || !draft.trim()} aria-label="Enviar pergunta"><Send size={17} /></WatermelonButton>
         </form>
-      </aside>
+      </WatermelonSheet>
     </div>
   );
 }

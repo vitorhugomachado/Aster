@@ -5,6 +5,7 @@ import { LocateFixed, Minus, Plus } from 'lucide-react';
 import { KeyboardEvent as ReactKeyboardEvent, useCallback, useEffect, useRef, useState } from 'react';
 import type { LayerGroup, Map as LeafletMap } from 'leaflet';
 import { CityProfile, ClientRecord } from './client-data';
+import { WatermelonButton } from './watermelon-system';
 
 interface ClientMapProps {
   clients: ClientRecord[];
@@ -577,9 +578,9 @@ export function ClientMap({
       {provider !== 'loading' && provider !== 'google-error' && (
         <>
           <div className="map-zoom-control" aria-label="Controles do mapa">
-            <button onClick={() => changeZoom(1)} aria-label="Aproximar mapa"><Plus size={17} /></button>
-            <button onClick={() => changeZoom(-1)} aria-label="Afastar mapa"><Minus size={17} /></button>
-            <button onClick={resetMapView} aria-label="Mostrar cidade inteira"><LocateFixed size={17} /></button>
+            <WatermelonButton onClick={() => changeZoom(1)} aria-label="Aproximar mapa"><Plus size={17} /></WatermelonButton>
+            <WatermelonButton onClick={() => changeZoom(-1)} aria-label="Afastar mapa"><Minus size={17} /></WatermelonButton>
+            <WatermelonButton onClick={resetMapView} aria-label="Mostrar cidade inteira"><LocateFixed size={17} /></WatermelonButton>
           </div>
           <div className="map-interaction-hint">Role para zoom · arraste para mover · Ctrl + / −</div>
         </>

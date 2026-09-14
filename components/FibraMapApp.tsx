@@ -44,6 +44,19 @@ import { ClientMap } from './ClientMap';
 import { AsterAssistant } from './AsterAssistant';
 import { ClientDraft, ClientPanel, ClientPanelMode } from './ClientPanel';
 import { RuralGroupDraft, RuralGroupsModal } from './RuralGroupsModal';
+import { ContinuousTabs } from './continuous-tabs';
+import { CommandSearch, type CommandItem } from './command-search';
+import { FloatingInput } from './floating-input';
+import { LabeledProgressIndicator } from './labeled-progress-indicator';
+import {
+  WatermelonButton,
+  WatermelonCard,
+  WatermelonDialog,
+  WatermelonInput,
+  WatermelonSelect,
+  WatermelonSheet,
+  WatermelonTable,
+} from './watermelon-system';
 import paranaMunicipalities from './pr-municipalities.json';
 import {
   CityProfile,
@@ -278,7 +291,6 @@ export function FibraMapApp() {
   const [assistantOpen, setAssistantOpen] = useState(false);
   const [clientBubbleAnchor, setClientBubbleAnchor] = useState<{ x: number; y: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const searchRef = useRef<HTMLInputElement>(null);
   const reviewHoldTimerRef = useRef<number | null>(null);
   const suppressListClickRef = useRef<string | null>(null);
   const newCityState = PARANA_STATE;
@@ -586,10 +598,6 @@ export function FibraMapApp() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
-        event.preventDefault();
-        searchRef.current?.focus();
-      }
       if (event.key === 'Escape' && importOpen) setImportOpen(false);
       if (event.key === 'Escape' && cityOpen) setCityOpen(false);
       if (event.key === 'Escape' && ruralGroupsOpen) setRuralGroupsOpen(false);
@@ -1854,6 +1862,22 @@ export function FibraMapApp() {
   const previewNotLocated = importPreview?.rows.filter((row) => row.issues.length === 0 && row.lat === undefined && !row.needsGeocoding).length ?? 0;
   const previewErrors = importPreview?.rows.filter((row) => row.issues.length > 0).length ?? 0;
   const previewTotal = importPreview?.rows.length ?? 0;
+  const commandItems: CommandItem[] = [
+    { id: 'open-map', title: 'Abrir mapa de clientes', section: 'Navegação', icon: <MapPinned size={16} />, shortcut: 'M', action: () => setView('mapa') },
+    { id: 'open-list', title: 'Abrir lista de clientes', section: 'Navegação', icon: <List size={16} />, shortcut: 'L', action: () => setView('lista') },
+    { id: 'open-imports', title: 'Abrir histórico de importações', section: 'Navegação', icon: <History size={16} />, action: () => setView('importacoes') },
+    { id: 'new-client', title: 'Adicionar novo cliente', section: 'Ações', icon: <Plus size={16} />, action: openNewClient },
+    { id: 'new-import', title: 'Importar planilha', section: 'Ações', icon: <Upload size={16} />, action: openImporter },
+    { id: 'rural-groups', title: 'Gerenciar grupos rurais', section: 'Ações', icon: <UsersRound size={16} />, action: openRuralGroups },
+    { id: 'aster-ai', title: 'Conversar com o Aster IA', section: 'Ações', icon: <Sparkles size={16} />, action: () => setAssistantOpen(true) },
+    ...cityClients.slice(0, 60).map((client): CommandItem => ({
+      id: `client-${client.id}`,
+      title: `${client.name} · ${client.street || 'endereço não informado'}, ${client.number || 's/n'}`,
+      section: 'Clientes',
+      icon: <MapPin size={16} />,
+      action: () => openClientFromList(client),
+    })),
+  ];
 
   return (
     <main className="app-shell">
@@ -1863,24 +1887,21 @@ export function FibraMapApp() {
           <div><strong>aster</strong><span>Inteligência comercial</span></div>
         </div>
 
-        <label className="search-box">
-          <Search size={16} aria-hidden="true" />
-          <input
-            ref={searchRef}
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            aria-label="Buscar cliente ou endereço"
-            placeholder="Buscar ID, bairro, endereço ou CEP"
-          />
-          <kbd>Ctrl K</kbd>
-        </label>
+        <CommandSearch
+          className="aster-command-search"
+          items={commandItems}
+          triggerLabel="Buscar cliente ou ação"
+          placeholder="Cliente, endereço ou ação…"
+          shortcutLabel="Ctrl K"
+          emptyLabel="Nada encontrado"
+        />
 
         <div className="top-actions">
-          <button className="assistant-trigger" onClick={() => setAssistantOpen(true)}><Sparkles size={15} />Aster IA</button>
+          <WatermelonButton className="assistant-trigger" onClick={() => setAssistantOpen(true)}><Sparkles size={15} />Aster IA</WatermelonButton>
           <Link className="design-system-link" href="/design-system">Sistema visual</Link>
           <span className="demo-badge">Dados neste dispositivo</span>
-          <button className="icon-button" aria-label="Notificações"><Bell size={16} /></button>
-          <button className="profile-button"><span>SC</span><span className="profile-name">Stefani<br /><small>Comercial</small></span></button>
+          <WatermelonButton className="icon-button" aria-label="Notificações"><Bell size={16} /></WatermelonButton>
+          <WatermelonButton className="profile-button"><span>SC</span><span className="profile-name">Stefani<br /><small>Comercial</small></span></WatermelonButton>
         </div>
       </header>
 
@@ -1889,7 +1910,7 @@ export function FibraMapApp() {
         <label className="city-picker">
           <MapPin size={17} aria-hidden="true" />
           <span><b>{city}</b><small>{activeCityProfile?.center ? `${activeCityProfile.state} · cidade validada${activeCityProfile.bounds ? ' · limites oficiais' : ''}` : 'Cidade ainda não validada'}</small></span>
-          <select
+          <WatermelonSelect
             aria-label="Selecionar cidade"
             value={city}
             onChange={(event) => {
@@ -1905,10 +1926,10 @@ export function FibraMapApp() {
             }}
           >
             {cities.map((item) => <option key={`${item.name}-${item.state}`} value={item.name}>{item.name}/{item.state}</option>)}
-          </select>
+          </WatermelonSelect>
           <ChevronDown size={15} aria-hidden="true" />
         </label>
-        <button
+        <WatermelonButton
           className="add-city-button"
           onClick={() => {
             setCityError('');
@@ -1919,27 +1940,27 @@ export function FibraMapApp() {
           }}
         >
           <Plus size={14} />Cadastrar nova cidade
-        </button>
+        </WatermelonButton>
 
         <nav className="nav-list" aria-label="Navegação principal">
-          <button className={view === 'mapa' ? 'active' : ''} onClick={() => setView('mapa')}><MapPinned size={18} />Mapa de clientes</button>
-          <button className={view === 'lista' ? 'active' : ''} onClick={() => setView('lista')}><List size={18} />Lista de clientes</button>
-          <button className={view === 'importacoes' ? 'active' : ''} onClick={() => setView('importacoes')}><History size={18} />Importações</button>
+          <WatermelonButton className={view === 'mapa' ? 'active' : ''} onClick={() => setView('mapa')}><MapPinned size={18} />Mapa de clientes</WatermelonButton>
+          <WatermelonButton className={view === 'lista' ? 'active' : ''} onClick={() => setView('lista')}><List size={18} />Lista de clientes</WatermelonButton>
+          <WatermelonButton className={view === 'importacoes' ? 'active' : ''} onClick={() => setView('importacoes')}><History size={18} />Importações</WatermelonButton>
         </nav>
 
-        <section className="summary-card">
+        <WatermelonCard className="summary-card">
           <span className="eyebrow">Visão da cidade</span>
           <div className="total-line"><strong>{cityClients.length.toLocaleString('pt-BR')}</strong><span>clientes na base</span></div>
           <div className="summary-row"><span><i className="dot active-dot" />Ativos</span><b>{counts.Ativo ?? 0}</b></div>
           <div className="summary-row"><span><i className="dot install-dot" />Instalação</span><b>{counts['Instalação'] ?? 0}</b></div>
           <div className="summary-row"><span><i className="dot alert-dot" />Atenção</span><b>{counts['Atenção'] ?? 0}</b></div>
           <div className="summary-row"><span><i className="dot pending-dot" />Sem localização</span><b>{pendingCount}</b></div>
-        </section>
+        </WatermelonCard>
 
-        <button className="manual-button" onClick={openNewClient}><Plus size={16} />Adicionar cliente</button>
-        <button className="rural-groups-button" onClick={openRuralGroups}><UsersRound size={16} />Grupos rurais <span>{cityRuralGroups.length}</span></button>
-        <button className="import-button" onClick={openImporter}><Upload size={16} />Importar planilha</button>
-        <button className="reset-button" onClick={resetDemo}><RefreshCcw size={13} />Restaurar demonstração</button>
+        <WatermelonButton className="manual-button" onClick={openNewClient}><Plus size={16} />Adicionar cliente</WatermelonButton>
+        <WatermelonButton className="rural-groups-button" onClick={openRuralGroups}><UsersRound size={16} />Grupos rurais <span>{cityRuralGroups.length}</span></WatermelonButton>
+        <WatermelonButton className="import-button" onClick={openImporter}><Upload size={16} />Importar planilha</WatermelonButton>
+        <WatermelonButton className="reset-button" onClick={resetDemo}><RefreshCcw size={13} />Restaurar demonstração</WatermelonButton>
       </aside>
 
       <section className="content-stage">
@@ -1948,7 +1969,7 @@ export function FibraMapApp() {
             <span className="mobile-city-icon"><MapPin size={16} /></span>
             <span><small>Cidade ativa</small><b>{city}/{activeCityProfile?.state ?? PARANA_STATE}</b></span>
             <ChevronDown size={16} />
-            <select
+            <WatermelonSelect
               aria-label="Selecionar cidade"
               value={city}
               onChange={(event) => {
@@ -1964,9 +1985,9 @@ export function FibraMapApp() {
               }}
             >
               {cities.map((item) => <option key={`mobile-${item.name}-${item.state}`} value={item.name}>{item.name}/{item.state}</option>)}
-            </select>
+            </WatermelonSelect>
           </label>
-          <button
+          <WatermelonButton
             className="mobile-city-add"
             aria-label="Cadastrar cidade"
             onClick={() => {
@@ -1976,8 +1997,8 @@ export function FibraMapApp() {
               setCitySuggestionsOpen(false);
               setCityOpen(true);
             }}
-          ><Plus size={18} /></button>
-          <button className="mobile-assistant-trigger" onClick={() => setAssistantOpen(true)} aria-label="Abrir Aster IA"><Sparkles size={18} /></button>
+          ><Plus size={18} /></WatermelonButton>
+          <WatermelonButton className="mobile-assistant-trigger" onClick={() => setAssistantOpen(true)} aria-label="Abrir Aster IA"><Sparkles size={18} /></WatermelonButton>
         </div>
 
         {view === 'mapa' && (
@@ -1986,36 +2007,36 @@ export function FibraMapApp() {
               <label className="filter-button"><SlidersHorizontal size={14} /><span>{visibleClients.length} exibidos</span></label>
               <label className="filter-button">
                 <span className="filter-label">Status</span>
-                <select value={status} onChange={(event) => setStatus(event.target.value as ClientStatus | 'Todos')}>
+                <WatermelonSelect value={status} onChange={(event) => setStatus(event.target.value as ClientStatus | 'Todos')}>
                   {STATUS_OPTIONS.map((option) => <option key={option}>{option}</option>)}
-                </select>
+                </WatermelonSelect>
                 <ChevronDown size={13} />
               </label>
               <label className="filter-button">
                 <span className="filter-label">Plano</span>
-                <select value={plan} onChange={(event) => setPlan(event.target.value)}>
+                <WatermelonSelect value={plan} onChange={(event) => setPlan(event.target.value)}>
                   <option>Todos</option>
                   {plans.map((option) => <option key={option}>{option}</option>)}
-                </select>
+                </WatermelonSelect>
                 <ChevronDown size={13} />
               </label>
               <label className="filter-button batch-filter">
                 <span className="filter-label">Importação</span>
-                <select value={activeBatchId} onChange={(event) => { setActiveBatchId(event.target.value); setSelectedId(null); setSelectedRuralGroupId(null); setClientPanelMode(null); }}>
+                <WatermelonSelect value={activeBatchId} onChange={(event) => { setActiveBatchId(event.target.value); setSelectedId(null); setSelectedRuralGroupId(null); setClientPanelMode(null); }}>
                   <option value="all">Todos os registros</option>
                   {cityHistory.map((batch) => <option key={batch.id} value={batch.id}>{batch.name} · {batch.importedAt.toLocaleDateString('pt-BR')}</option>)}
-                </select>
+                </WatermelonSelect>
                 <ChevronDown size={13} />
               </label>
               <label className="filter-button">
                 <span className="filter-label">Localização</span>
-                <select value={locationFilter} onChange={(event) => setLocationFilter(event.target.value as LocationFilter)}>
+                <WatermelonSelect value={locationFilter} onChange={(event) => setLocationFilter(event.target.value as LocationFilter)}>
                   <option>Todos</option><option>Mapeados</option><option>Revisar</option>
-                </select>
+                </WatermelonSelect>
                 <ChevronDown size={13} />
               </label>
-              <button className="map-add-client" onClick={openNewClient}><Plus size={15} />Novo cliente</button>
-              <button className="map-rural-groups" onClick={openRuralGroups}><UsersRound size={15} />Grupos rurais</button>
+              <WatermelonButton className="map-add-client" onClick={openNewClient}><Plus size={15} />Novo cliente</WatermelonButton>
+              <WatermelonButton className="map-rural-groups" onClick={openRuralGroups}><UsersRound size={15} />Grupos rurais</WatermelonButton>
             </div>
 
             <ClientMap
@@ -2039,8 +2060,8 @@ export function FibraMapApp() {
                   <small>Arraste o pin ou toque no ponto exato do imóvel.</small>
                   <code>{positionDraft.lat.toFixed(7)}, {positionDraft.lng.toFixed(7)}</code>
                 </div>
-                <button className="position-cancel" onClick={cancelPositioning}><X size={16} />Cancelar</button>
-                <button className="position-confirm" onClick={confirmPositioning}><CheckCircle2 size={16} />Confirmar local</button>
+                <WatermelonButton className="position-cancel" onClick={cancelPositioning}><X size={16} />Cancelar</WatermelonButton>
+                <WatermelonButton className="position-confirm" onClick={confirmPositioning}><CheckCircle2 size={16} />Confirmar local</WatermelonButton>
               </div>
             )}
 
@@ -2052,8 +2073,8 @@ export function FibraMapApp() {
                   <small>Marque a entrada, sede ou ponto central que representa toda a comunidade.</small>
                   <code>{ruralGroupPositionDraft.lat.toFixed(7)}, {ruralGroupPositionDraft.lng.toFixed(7)}</code>
                 </div>
-                <button className="position-cancel" onClick={cancelRuralGroupPositioning}><X size={16} />Cancelar</button>
-                <button className="position-confirm" onClick={confirmRuralGroupPositioning}><CheckCircle2 size={16} />Usar este local</button>
+                <WatermelonButton className="position-cancel" onClick={cancelRuralGroupPositioning}><X size={16} />Cancelar</WatermelonButton>
+                <WatermelonButton className="position-confirm" onClick={confirmRuralGroupPositioning}><CheckCircle2 size={16} />Usar este local</WatermelonButton>
               </div>
             )}
 
@@ -2077,7 +2098,7 @@ export function FibraMapApp() {
             )}
 
             {selectedRuralGroup && !ruralGroupPositionDraft && (
-              <aside
+              <WatermelonSheet
                 className={`client-panel rural-group-bubble ${clientBubbleAnchor ? 'client-panel-bubble' : ''}`}
                 style={clientBubbleAnchor ? ({
                   '--client-anchor-x': `${clientBubbleAnchor.x}px`,
@@ -2090,7 +2111,7 @@ export function FibraMapApp() {
                     <span className="client-avatar rural-group-avatar"><UsersRound size={18} /></span>
                     <div><small>Grupo rural · {selectedRuralGroupMembers.length} clientes</small><h2>{selectedRuralGroup.name}</h2></div>
                   </div>
-                  <button className="panel-icon-button" onClick={() => { setSelectedRuralGroupId(null); setClientBubbleAnchor(null); }} aria-label="Fechar grupo"><X size={18} /></button>
+                  <WatermelonButton className="panel-icon-button" onClick={() => { setSelectedRuralGroupId(null); setClientBubbleAnchor(null); }} aria-label="Fechar grupo"><X size={18} /></WatermelonButton>
                 </header>
                 <div className="rural-group-bubble-body">
                   <div className="rural-group-coordinate"><MapPin size={15} /><span><b>Marcador compartilhado</b><small>{selectedRuralGroup.lat.toFixed(6)}, {selectedRuralGroup.lng.toFixed(6)}</small></span></div>
@@ -2102,10 +2123,10 @@ export function FibraMapApp() {
                   </div>
                 </div>
                 <footer className="client-panel-actions">
-                  <button className="panel-secondary" onClick={() => startPositioning(groupMarkerId(selectedRuralGroup.id))}><MapPinned size={16} />Reposicionar</button>
-                  <button className="panel-primary" onClick={() => { editRuralGroup(selectedRuralGroup); setRuralGroupsOpen(true); setSelectedRuralGroupId(null); }}><Pencil size={16} />Editar grupo</button>
+                  <WatermelonButton className="panel-secondary" onClick={() => startPositioning(groupMarkerId(selectedRuralGroup.id))}><MapPinned size={16} />Reposicionar</WatermelonButton>
+                  <WatermelonButton className="panel-primary" onClick={() => { editRuralGroup(selectedRuralGroup); setRuralGroupsOpen(true); setSelectedRuralGroupId(null); }}><Pencil size={16} />Editar grupo</WatermelonButton>
                 </footer>
-              </aside>
+              </WatermelonSheet>
             )}
 
             <div className="map-key">
@@ -2117,9 +2138,9 @@ export function FibraMapApp() {
             </div>
 
             <div className="mobile-action-dock" aria-label="Ações rápidas">
-              <button className="mobile-import-action" onClick={openImporter} aria-label="Importar planilha"><Upload size={19} /></button>
-              <button className="mobile-rural-action" onClick={openRuralGroups} aria-label="Grupos rurais"><UsersRound size={19} /></button>
-              <button className="mobile-primary-action" onClick={openNewClient}><Plus size={21} /><span>Novo cliente</span></button>
+              <WatermelonButton className="mobile-import-action" onClick={openImporter} aria-label="Importar planilha"><Upload size={19} /></WatermelonButton>
+              <WatermelonButton className="mobile-rural-action" onClick={openRuralGroups} aria-label="Grupos rurais"><UsersRound size={19} /></WatermelonButton>
+              <WatermelonButton className="mobile-primary-action" onClick={openNewClient}><Plus size={21} /><span>Novo cliente</span></WatermelonButton>
             </div>
           </>
         )}
@@ -2129,30 +2150,34 @@ export function FibraMapApp() {
             <div className="panel-heading">
               <div><span className="eyebrow">{activeBatch ? 'Importação selecionada' : 'Base atual'}</span><h1>Lista de clientes</h1><p>{activeBatch ? `${activeBatch.name} · ${activeBatch.importedAt.toLocaleString('pt-BR')}` : `${visibleClients.length} registros após os filtros.`}</p></div>
               <div className="panel-heading-actions">
-                <button className="secondary-small" onClick={openImporter}><Upload size={15} />Importar</button>
-                <button className="primary-small" onClick={openNewClient}><Plus size={15} />Adicionar cliente</button>
+                <WatermelonButton className="secondary-small" onClick={openImporter}><Upload size={15} />Importar</WatermelonButton>
+                <WatermelonButton className="primary-small" onClick={openNewClient}><Plus size={15} />Adicionar cliente</WatermelonButton>
               </div>
             </div>
             <div className="client-list-toolbar" aria-label="Pesquisa e filtros da lista de clientes">
               <label className="client-list-search">
                 <Search size={16} />
-                <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Pesquisar nome, ID, rua, bairro ou CEP" aria-label="Pesquisar na lista de clientes" />
-                {query && <button onClick={() => setQuery('')} aria-label="Limpar pesquisa"><X size={14} /></button>}
+                <WatermelonInput value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Pesquisar nome, ID, rua, bairro ou CEP" aria-label="Pesquisar na lista de clientes" />
+                {query && <WatermelonButton onClick={() => setQuery('')} aria-label="Limpar pesquisa"><X size={14} /></WatermelonButton>}
               </label>
-              <label><span>Status</span><select value={status} onChange={(event) => setStatus(event.target.value as ClientStatus | 'Todos')}>{STATUS_OPTIONS.map((option) => <option key={option}>{option}</option>)}</select><ChevronDown size={13} /></label>
-              <label><span>Plano</span><select value={plan} onChange={(event) => setPlan(event.target.value)}><option>Todos</option>{plans.map((option) => <option key={option}>{option}</option>)}</select><ChevronDown size={13} /></label>
-              <label><span>Importação</span><select value={activeBatchId} onChange={(event) => setActiveBatchId(event.target.value)}><option value="all">Todas</option>{cityHistory.map((batch) => <option key={batch.id} value={batch.id}>{batch.name}</option>)}</select><ChevronDown size={13} /></label>
-              <button className="client-list-clear" onClick={() => { setQuery(''); setStatus('Todos'); setPlan('Todos'); setLocationFilter('Todos'); setActiveBatchId('all'); }}>Limpar filtros</button>
+              <label><span>Status</span><WatermelonSelect value={status} onChange={(event) => setStatus(event.target.value as ClientStatus | 'Todos')}>{STATUS_OPTIONS.map((option) => <option key={option}>{option}</option>)}</WatermelonSelect><ChevronDown size={13} /></label>
+              <label><span>Plano</span><WatermelonSelect value={plan} onChange={(event) => setPlan(event.target.value)}><option>Todos</option>{plans.map((option) => <option key={option}>{option}</option>)}</WatermelonSelect><ChevronDown size={13} /></label>
+              <label><span>Importação</span><WatermelonSelect value={activeBatchId} onChange={(event) => setActiveBatchId(event.target.value)}><option value="all">Todas</option>{cityHistory.map((batch) => <option key={batch.id} value={batch.id}>{batch.name}</option>)}</WatermelonSelect><ChevronDown size={13} /></label>
+              <WatermelonButton className="client-list-clear" onClick={() => { setQuery(''); setStatus('Todos'); setPlan('Todos'); setLocationFilter('Todos'); setActiveBatchId('all'); }}>Limpar filtros</WatermelonButton>
             </div>
             <div className="list-scope-bar" aria-label="Filtrar por localização">
-              {(['Todos', 'Mapeados', 'Revisar'] as LocationFilter[]).map((option) => (
-                <button key={option} className={locationFilter === option ? 'active' : ''} onClick={() => setLocationFilter(option)}>{option}</button>
-              ))}
-              {activeBatch && <button className="clear-batch-filter" onClick={() => { setActiveBatchId('all'); setLocationFilter('Todos'); }}>Ver toda a cidade</button>}
-              <button className="list-rural-groups" onClick={openRuralGroups}><UsersRound size={14} />Grupos rurais</button>
+              <ContinuousTabs
+                compact
+                className="location-tabs"
+                tabs={(['Todos', 'Mapeados', 'Revisar'] as LocationFilter[]).map((option) => ({ id: option, label: option }))}
+                activeId={locationFilter}
+                onChange={(option) => setLocationFilter(option as LocationFilter)}
+              />
+              {activeBatch && <WatermelonButton className="clear-batch-filter" onClick={() => { setActiveBatchId('all'); setLocationFilter('Todos'); }}>Ver toda a cidade</WatermelonButton>}
+              <WatermelonButton className="list-rural-groups" onClick={openRuralGroups}><UsersRound size={14} />Grupos rurais</WatermelonButton>
             </div>
             <div className="table-wrap">
-              <table>
+              <WatermelonTable>
                 <thead><tr><th>Cliente</th><th>Endereço</th><th>Contato</th><th>Plano</th><th>Status</th><th>Localização</th><th>Ação</th></tr></thead>
                 <tbody>
                   {visibleClients.map((client) => (
@@ -2177,20 +2202,20 @@ export function FibraMapApp() {
                         : client.lat !== undefined && !client.importIssues?.length
                           ? <span className="mapped"><CheckCircle2 size={14} />Mapeado</span>
                           : <span className="unmapped" title={client.pendingReason}><Clock3 size={14} />{client.importIssues?.length ? 'Corrigir dados' : 'Realocalizar'}</span>}</td>
-                      <td><button className="table-relocate" onClick={(event) => { event.stopPropagation(); startPositioning(client.id, 'view'); }}><MapPinned size={14} />Realocar</button></td>
+                      <td><WatermelonButton className="table-relocate" onClick={(event) => { event.stopPropagation(); startPositioning(client.id, 'view'); }}><MapPinned size={14} />Realocar</WatermelonButton></td>
                     </tr>
                   ))}
                 </tbody>
-              </table>
+              </WatermelonTable>
               {!visibleClients.length && <div className="empty-table">Nenhum cliente corresponde aos filtros.</div>}
             </div>
             <div className="mobile-client-list">
               {visibleClients.map((client) => (
-                <article
+                <WatermelonCard
                   className="mobile-client-card"
                   key={`card-${client.id}`}
                 >
-                  <button
+                  <WatermelonButton
                     className="mobile-client-card-main"
                     onPointerDown={() => beginReviewHold(client)}
                     onPointerUp={clearReviewHold}
@@ -2214,9 +2239,9 @@ export function FibraMapApp() {
                           ? <><CheckCircle2 size={14} />Localizado no mapa</>
                           : <><Clock3 size={14} />{client.importIssues?.length ? client.importIssues.join(' · ') : 'Requer realocalização'}</>}
                     </span>
-                  </button>
-                  <button className="mobile-relocate-button" onClick={() => startPositioning(client.id, 'view')}><MapPinned size={15} />Realocar no mapa</button>
-                </article>
+                  </WatermelonButton>
+                  <WatermelonButton className="mobile-relocate-button" onClick={() => startPositioning(client.id, 'view')}><MapPinned size={15} />Realocar no mapa</WatermelonButton>
+                </WatermelonCard>
               ))}
               {!visibleClients.length && <div className="mobile-empty-list">Nenhum cliente corresponde aos filtros.</div>}
             </div>
@@ -2228,8 +2253,8 @@ export function FibraMapApp() {
             <div className="panel-heading">
               <div><span className="eyebrow">Controle de qualidade</span><h1>Importações</h1><p>Acompanhe arquivos, registros mapeados e linhas que precisam de revisão.</p></div>
               <div className="panel-heading-actions">
-                <button className="secondary-small" onClick={openNewClient}><Plus size={15} />Cadastro manual</button>
-                <button className="primary-small" onClick={openImporter}><FileUp size={15} />Nova importação</button>
+                <WatermelonButton className="secondary-small" onClick={openNewClient}><Plus size={15} />Cadastro manual</WatermelonButton>
+                <WatermelonButton className="primary-small" onClick={openImporter}><FileUp size={15} />Nova importação</WatermelonButton>
               </div>
             </div>
             <div className="metric-grid">
@@ -2242,22 +2267,22 @@ export function FibraMapApp() {
                 {cityHistory.map((item) => {
                   const stats = batchStats(item.id);
                   return (
-                  <article key={item.id} className={activeBatchId === item.id ? 'history-selected' : ''}>
+                  <WatermelonCard key={item.id} className={activeBatchId === item.id ? 'history-selected' : ''}>
                     <span className="history-icon"><FileSpreadsheet size={18} /></span>
                     <div className="history-copy"><b>{item.name}</b><small>{item.fileName} · {item.importedAt.toLocaleString('pt-BR')}</small></div>
                     <span>{stats.records.length} registros</span><span className="history-good">{stats.mapped} no mapa</span><span className="history-warn">{stats.pending} pendentes</span><span className="history-bad">{stats.issues} com erro</span>
                     <div className="history-actions">
-                      <button onClick={() => showBatchOnMap(item)}><MapPinned size={14} />Ver mapa</button>
-                      <button onClick={() => reviewBatch(item)} disabled={!stats.pending && !stats.issues}><AlertTriangle size={14} />Revisar</button>
-                      <button onClick={() => openBatchEditor(item)}><Pencil size={14} />Editar</button>
-                      <button className="history-delete" onClick={() => deleteBatch(item)}><Trash2 size={14} />Excluir</button>
+                      <WatermelonButton onClick={() => showBatchOnMap(item)}><MapPinned size={14} />Ver mapa</WatermelonButton>
+                      <WatermelonButton onClick={() => reviewBatch(item)} disabled={!stats.pending && !stats.issues}><AlertTriangle size={14} />Revisar</WatermelonButton>
+                      <WatermelonButton onClick={() => openBatchEditor(item)}><Pencil size={14} />Editar</WatermelonButton>
+                      <WatermelonButton className="history-delete" onClick={() => deleteBatch(item)}><Trash2 size={14} />Excluir</WatermelonButton>
                     </div>
-                  </article>
+                  </WatermelonCard>
                   );
                 })}
               </div>
             ) : (
-              <div className="empty-state"><span><FileSpreadsheet size={27} /></span><h2>Nenhuma planilha importada</h2><p>A base exibida é fictícia. Importe um arquivo de teste ou baixe o modelo.</p><div><button className="primary-small" onClick={openImporter}>Escolher arquivo</button><button className="secondary-small" onClick={downloadTemplate}><Download size={14} />Baixar modelo</button></div></div>
+              <div className="empty-state"><span><FileSpreadsheet size={27} /></span><h2>Nenhuma planilha importada</h2><p>A base exibida é fictícia. Importe um arquivo de teste ou baixe o modelo.</p><div><WatermelonButton className="primary-small" onClick={openImporter}>Escolher arquivo</WatermelonButton><WatermelonButton className="secondary-small" onClick={downloadTemplate}><Download size={14} />Baixar modelo</WatermelonButton></div></div>
             )}
           </section>
         )}
@@ -2307,8 +2332,8 @@ export function FibraMapApp() {
 
       {importOpen && (
         <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !importBusy) setImportOpen(false); }}>
-          <section className="import-modal" role="dialog" aria-modal="true" aria-labelledby="import-title">
-            <header><div><span className="eyebrow">Nova base de clientes</span><h2 id="import-title">Importar planilha</h2></div><button onClick={() => setImportOpen(false)} disabled={importBusy} aria-label="Fechar"><X size={18} /></button></header>
+          <WatermelonDialog className="import-modal" role="dialog" aria-modal="true" aria-labelledby="import-title">
+            <header><div><span className="eyebrow">Nova base de clientes</span><h2 id="import-title">Importar planilha</h2></div><WatermelonButton onClick={() => setImportOpen(false)} disabled={importBusy} aria-label="Fechar"><X size={18} /></WatermelonButton></header>
             <div className="modal-privacy"><ShieldCheck size={18} /><span><b>Somente o endereço é usado na localização.</b> Logradouro, número, bairro, CEP, cidade e UF podem ser enviados ao geocodificador; nome, ID, plano, documento e celular não saem do sistema.</span></div>
 
             {!importPreview ? (
@@ -2322,15 +2347,15 @@ export function FibraMapApp() {
                   <span className="upload-orb">{importBusy ? <LoaderCircle className="spin" size={24} /> : <FileUp size={24} />}</span>
                   <h3>{importBusy ? 'Lendo a planilha…' : 'Arraste o arquivo até aqui'}</h3>
                   <p>Excel .xlsx ou CSV, até 5 MB e 5.000 linhas.</p>
-                  <button onClick={() => fileInputRef.current?.click()} disabled={importBusy}>Selecionar arquivo</button>
-                  <input ref={fileInputRef} type="file" accept=".xlsx,.csv" onChange={onFileChange} hidden />
+                  <WatermelonButton onClick={() => fileInputRef.current?.click()} disabled={importBusy}>Selecionar arquivo</WatermelonButton>
+                  <WatermelonInput ref={fileInputRef} type="file" accept=".xlsx,.csv" onChange={onFileChange} hidden />
                 </div>
                 {importError && <div className="error-box"><AlertTriangle size={16} />{importError}</div>}
-                <div className="template-row"><div><FileSpreadsheet size={18} /><span><b>Não tem o modelo?</b><small>Inclui os cabeçalhos aceitos e uma linha de exemplo.</small></span></div><button onClick={downloadTemplate}><Download size={14} />Baixar modelo CSV</button></div>
+                <div className="template-row"><div><FileSpreadsheet size={18} /><span><b>Não tem o modelo?</b><small>Inclui os cabeçalhos aceitos e uma linha de exemplo.</small></span></div><WatermelonButton onClick={downloadTemplate}><Download size={14} />Baixar modelo CSV</WatermelonButton></div>
               </>
             ) : (
               <>
-                <div className="file-summary"><FileSpreadsheet size={20} /><div><b>{importPreview.fileName}</b><small>{importPreview.rows.length} linhas encontradas</small></div><button onClick={() => setImportPreview(null)} disabled={importBusy}>Trocar arquivo</button></div>
+                <div className="file-summary"><FileSpreadsheet size={20} /><div><b>{importPreview.fileName}</b><small>{importPreview.rows.length} linhas encontradas</small></div><WatermelonButton onClick={() => setImportPreview(null)} disabled={importBusy}>Trocar arquivo</WatermelonButton></div>
                 {importPreview.providerTemplate && (
                   <div className="model-recognized">
                     <div><CheckCircle2 size={18} /><span><b>Modelo do provedor reconhecido</b>O sistema encontrou automaticamente as colunas disponíveis e ignora linhas de título e totalização.</span></div>
@@ -2342,11 +2367,21 @@ export function FibraMapApp() {
                       <p><AlertTriangle size={16} /><span><b>Nenhum endereço apto.</b> Corrija nome, logradouro e número para iniciar a localização.</span></p>
                     )}
                     <div className="model-settings">
-                      <label><span>Cidade ativa e obrigatória</span><input value={importCityOverride} readOnly /></label>
-                      <label><span>UF</span><input value={importStateOverride} readOnly /></label>
-                      <label><span>Status padrão</span><select value={importDefaultStatus} onChange={(event) => setImportDefaultStatus(event.target.value as ClientStatus)}>{STATUS_OPTIONS.filter((item) => item !== 'Todos').map((item) => <option key={item}>{item}</option>)}</select></label>
+                      <label><span>Cidade ativa e obrigatória</span><WatermelonInput value={importCityOverride} readOnly /></label>
+                      <label><span>UF</span><WatermelonInput value={importStateOverride} readOnly /></label>
+                      <label><span>Status padrão</span><WatermelonSelect value={importDefaultStatus} onChange={(event) => setImportDefaultStatus(event.target.value as ClientStatus)}>{STATUS_OPTIONS.filter((item) => item !== 'Todos').map((item) => <option key={item}>{item}</option>)}</WatermelonSelect></label>
                     </div>
                     <small>Código, contrato, bairro e demais campos são opcionais. Documento, e-mail e celular ficam no card do cliente e não são enviados ao geocodificador.</small>
+                  </div>
+                )}
+                {importBusy && geocodeProgress.total > 0 && (
+                  <div className="watermelon-import-progress">
+                    <LabeledProgressIndicator
+                      labels={['Validando endereços', 'Consultando o mapa', 'Preparando os marcadores']}
+                      progress={`${Math.round((geocodeProgress.done / geocodeProgress.total) * 100)}%`}
+                      intervalMs={1800}
+                      compact
+                    />
                   </div>
                 )}
                 <div className="preview-metrics">
@@ -2355,7 +2390,7 @@ export function FibraMapApp() {
                   <div className="preview-incomplete"><MapPin size={17} /><span>Não confirmados<b>{previewNotLocated}</b></span></div>
                   <div className="preview-error"><AlertTriangle size={17} /><span>Com erro<b>{previewErrors}</b></span></div>
                 </div>
-                <div className="preview-table"><table><thead><tr><th>Linha</th><th>ID</th><th>Cidade</th><th>Endereço</th><th>Resultado</th></tr></thead><tbody>
+                <div className="preview-table"><WatermelonTable><thead><tr><th>Linha</th><th>ID</th><th>Cidade</th><th>Endereço</th><th>Resultado</th></tr></thead><tbody>
                   {importPreview.rows.slice(0, 6).map((row) => (
                     <tr key={`${row.rowNumber}-${row.id}`}>
                       <td>{row.rowNumber}</td><td>{row.id || '—'}</td><td>{row.city || '—'}</td>
@@ -2370,54 +2405,58 @@ export function FibraMapApp() {
                       </td>
                     </tr>
                   ))}
-                </tbody></table>{importPreview.rows.length > 6 && <div className="more-rows">Mais {importPreview.rows.length - 6} linhas não exibidas na prévia.</div>}</div>
+                </tbody></WatermelonTable>{importPreview.rows.length > 6 && <div className="more-rows">Mais {importPreview.rows.length - 6} linhas não exibidas na prévia.</div>}</div>
                 {importError && <div className="error-box"><AlertTriangle size={16} />{importError}</div>}
                 <p className="geocode-note"><ShieldCheck size={15} />O próprio sistema localiza os endereços em {importCityOverride}/{importStateOverride}. Registros incompletos também serão salvos no lote e ficarão disponíveis em “Revisar” para correção e nova localização.</p>
                 <footer className="modal-actions">
-                  <button className="secondary-action" onClick={() => setImportPreview(null)} disabled={importBusy}>Voltar</button>
-                  <button className="primary-action" onClick={() => void confirmImport()} disabled={importBusy || previewTotal === 0}>
+                  <WatermelonButton className="secondary-action" onClick={() => setImportPreview(null)} disabled={importBusy}>Voltar</WatermelonButton>
+                  <WatermelonButton className="primary-action" onClick={() => void confirmImport()} disabled={importBusy || previewTotal === 0}>
                     {importBusy
                       ? <><LoaderCircle className="spin" size={15} />Localizando {geocodeProgress.done}/{geocodeProgress.total}…</>
                       : <>Salvar {previewTotal} registros nesta importação</>}
-                  </button>
+                  </WatermelonButton>
                 </footer>
               </>
             )}
-          </section>
+          </WatermelonDialog>
         </div>
       )}
 
       {editingBatch && (
         <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setBatchEditorId(null); }}>
-          <section className="import-modal batch-edit-modal" role="dialog" aria-modal="true" aria-labelledby="batch-edit-title">
+          <WatermelonDialog className="import-modal batch-edit-modal" role="dialog" aria-modal="true" aria-labelledby="batch-edit-title">
             <header>
               <div><span className="eyebrow">Organizar histórico</span><h2 id="batch-edit-title">Editar importação</h2></div>
-              <button onClick={() => setBatchEditorId(null)} aria-label="Fechar"><X size={18} /></button>
+              <WatermelonButton onClick={() => setBatchEditorId(null)} aria-label="Fechar"><X size={18} /></WatermelonButton>
             </header>
             <p className="city-help">Altere o nome usado para identificar este lote. O arquivo, a data e os clientes vinculados permanecem preservados.</p>
-            <label className="batch-name-field">
-              <span>Nome da importação</span>
-              <input value={batchNameDraft} onChange={(event) => setBatchNameDraft(event.target.value)} autoFocus maxLength={80} />
-            </label>
+            <FloatingInput
+              label="Nome da importação"
+              className="client-floating-input batch-name-field"
+              value={batchNameDraft}
+              onChange={(event) => setBatchNameDraft(event.target.value)}
+              autoFocus
+              maxLength={80}
+            />
             <div className="batch-readonly-details">
               <span><small>Arquivo original</small><b>{editingBatch.fileName}</b></span>
               <span><small>Cidade</small><b>{editingBatch.city}/{editingBatch.state}</b></span>
               <span><small>Importada em</small><b>{editingBatch.importedAt.toLocaleString('pt-BR')}</b></span>
             </div>
             <footer className="modal-actions">
-              <button className="secondary-action" onClick={() => setBatchEditorId(null)}>Cancelar</button>
-              <button className="primary-action" onClick={saveBatchEditor} disabled={!normalizeText(batchNameDraft)}>Salvar nome</button>
+              <WatermelonButton className="secondary-action" onClick={() => setBatchEditorId(null)}>Cancelar</WatermelonButton>
+              <WatermelonButton className="primary-action" onClick={saveBatchEditor} disabled={!normalizeText(batchNameDraft)}>Salvar nome</WatermelonButton>
             </footer>
-          </section>
+          </WatermelonDialog>
         </div>
       )}
 
       {cityOpen && (
         <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !cityBusy) setCityOpen(false); }}>
-          <section className="import-modal city-modal" role="dialog" aria-modal="true" aria-labelledby="city-title">
+          <WatermelonDialog className="import-modal city-modal" role="dialog" aria-modal="true" aria-labelledby="city-title">
             <header>
               <div><span className="eyebrow">Área de trabalho</span><h2 id="city-title">Cadastrar cidade</h2></div>
-              <button onClick={() => setCityOpen(false)} disabled={cityBusy} aria-label="Fechar"><X size={18} /></button>
+              <WatermelonButton onClick={() => setCityOpen(false)} disabled={cityBusy} aria-label="Fechar"><X size={18} /></WatermelonButton>
             </header>
             <p className="city-help">O sistema está configurado para o Paraná. Digite o nome e selecione um dos 399 municípios da lista oficial do IBGE.</p>
             <div className="city-fields">
@@ -2426,7 +2465,7 @@ export function FibraMapApp() {
                 <label htmlFor="municipality-search">Município</label>
                 <div className="municipality-input">
                   <Search size={14} aria-hidden="true" />
-                  <input
+                  <WatermelonInput
                     id="municipality-search"
                     role="combobox"
                     aria-autocomplete="list"
@@ -2472,7 +2511,7 @@ export function FibraMapApp() {
                 {citySuggestionsOpen && (
                   <div className="municipality-options" id="municipality-options" role="listbox">
                     {filteredMunicipalities.length ? filteredMunicipalities.map((item, index) => (
-                      <button
+                      <WatermelonButton
                         id={`municipality-${item.id}`}
                         key={item.id}
                         type="button"
@@ -2483,7 +2522,7 @@ export function FibraMapApp() {
                         onClick={() => chooseMunicipality(item)}
                       >
                         <span>{item.name}</span><small>{newCityState} · IBGE {item.id}</small>
-                      </button>
+                      </WatermelonButton>
                     )) : (
                       <div className="municipality-message">Nenhum município do Paraná corresponde à busca.</div>
                     )}
@@ -2493,12 +2532,12 @@ export function FibraMapApp() {
             </div>
             {cityError && <div className="error-box"><AlertTriangle size={16} />{cityError}</div>}
             <footer className="modal-actions">
-              <button className="secondary-action" onClick={() => setCityOpen(false)} disabled={cityBusy}>Cancelar</button>
-              <button className="primary-action" onClick={() => void addCity()} disabled={cityBusy || selectedMunicipalityId === null}>
+              <WatermelonButton className="secondary-action" onClick={() => setCityOpen(false)} disabled={cityBusy}>Cancelar</WatermelonButton>
+              <WatermelonButton className="primary-action" onClick={() => void addCity()} disabled={cityBusy || selectedMunicipalityId === null}>
                 {cityBusy ? <><LoaderCircle className="spin" size={15} />Validando…</> : <><MapPin size={15} />Validar e cadastrar</>}
-              </button>
+              </WatermelonButton>
             </footer>
-          </section>
+          </WatermelonDialog>
         </div>
       )}
 

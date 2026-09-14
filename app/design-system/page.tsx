@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import Image from 'next/image';
+import { WatermelonButton, WatermelonCard, WatermelonInput } from '@/components/watermelon-system';
 
 const colors = [
   { name: 'Ink', value: '#000000', style: { background: '#000000', color: '#ffffff' } },
@@ -17,12 +18,11 @@ export default function DesignSystemPage() {
     <div className="design-system-page">
       <header className="ds-header">
         <div>
-          <span className="ds-kicker">aster / Design System 2.0</span>
+          <span className="ds-kicker">aster / Watermelon Design System</span>
           <h1>Clareza para decisões no mapa.</h1>
           <p>
-            Uma linguagem visual de alto contraste, modular e acessível para a operação
-            comercial. Inspirada nos princípios de objetividade do Base, adaptada ao contexto
-            brasileiro de provedores de fibra.
+            Uma linguagem visual modular, acessível e expressiva para a operação comercial.
+            Construída com componentes Watermelon e adaptada ao contexto brasileiro de provedores de fibra.
           </p>
         </div>
         <Link className="ds-back" href="/">Voltar ao sistema →</Link>
@@ -75,10 +75,10 @@ export default function DesignSystemPage() {
             <p>A ação principal usa o violeta Aster. Preto apoia contraste sem competir com os estados do mapa.</p>
           </div>
           <div className="ds-canvas ds-component-row">
-            <button className="ds-button ds-button-primary">Importar clientes</button>
-            <button className="ds-button ds-button-secondary">Cancelar</button>
-            <button className="ds-button ds-button-tertiary">Ver detalhes</button>
-            <button className="ds-button" disabled>Indisponível</button>
+            <WatermelonButton className="ds-button ds-button-primary">Importar clientes</WatermelonButton>
+            <WatermelonButton className="ds-button ds-button-secondary">Cancelar</WatermelonButton>
+            <WatermelonButton className="ds-button ds-button-tertiary">Ver detalhes</WatermelonButton>
+            <WatermelonButton className="ds-button" disabled>Indisponível</WatermelonButton>
           </div>
         </section>
 
@@ -90,7 +90,7 @@ export default function DesignSystemPage() {
           <div className="ds-canvas">
             <label className="ds-field">
               <span>Município</span>
-              <input defaultValue="Guaporema" aria-label="Exemplo de município" />
+              <WatermelonInput defaultValue="Guaporema" aria-label="Exemplo de município" />
               <small>Selecione uma opção oficial do IBGE.</small>
             </label>
           </div>
@@ -132,7 +132,7 @@ export default function DesignSystemPage() {
             <Image className="ds-map-marker marker-orange" src="/brand/aster-client-pin.png" alt="" width={44} height={44} />
             <Image className="ds-map-marker marker-red" src="/brand/aster-client-pin.png" alt="" width={44} height={44} />
             <div className="ds-map-card"><small>Cliente selecionado</small><b>Av. São José, 214</b><span>Ativo · 600 Mega</span></div>
-            <div className="ds-map-controls"><button>+</button><button>−</button><button>◎</button></div>
+            <div className="ds-map-controls"><WatermelonButton>+</WatermelonButton><WatermelonButton>−</WatermelonButton><WatermelonButton>◎</WatermelonButton></div>
           </div>
         </section>
 
@@ -142,10 +142,10 @@ export default function DesignSystemPage() {
             <p>Mouse, teclado e toque recebem a mesma prioridade. Toda ação crítica tem texto, foco e retorno visível.</p>
           </div>
           <div className="ds-canvas ds-rule-grid">
-            <article><b>Zoom</b><p>Roda do mouse, pinça, botões e Ctrl + / −.</p></article>
-            <article><b>Movimento</b><p>Clique e arraste sem exigir modo especial.</p></article>
-            <article><b>Seleção</b><p>O mapa aproxima o ponto e abre o card editável.</p></article>
-            <article><b>Erros</b><p>Nunca inventar coordenadas; orientar correção manual.</p></article>
+            <WatermelonCard><b>Zoom</b><p>Roda do mouse, pinça, botões e Ctrl + / −.</p></WatermelonCard>
+            <WatermelonCard><b>Movimento</b><p>Clique e arraste sem exigir modo especial.</p></WatermelonCard>
+            <WatermelonCard><b>Seleção</b><p>O mapa aproxima o ponto e abre o card editável.</p></WatermelonCard>
+            <WatermelonCard><b>Erros</b><p>Nunca inventar coordenadas; orientar correção manual.</p></WatermelonCard>
           </div>
         </section>
 

@@ -2,6 +2,10 @@
 
 Mapa comercial para importar clientes de fibra por planilha e localizar cada endereço dentro do município selecionado.
 
+## Interface
+
+A interface usa componentes de código aberto do [Watermelon UI](https://ui.watermelon.sh/), instalados pelo registro shadcn e adaptados aos fluxos de mapa, clientes, importações, grupos rurais e Aster IA. Os componentes ficam no próprio repositório para permitir evolução visual sem dependência de um pacote fechado.
+
 ## Funcionalidades
 
 - Seletor com os 399 municípios do Paraná e limites oficiais do IBGE.

@@ -15,6 +15,9 @@ import {
 } from 'lucide-react';
 import type { CSSProperties } from 'react';
 import { CityProfile, ClientRecord, ClientStatus, STATUS_COLORS } from './client-data';
+import { FloatingInput } from './floating-input';
+import { StatusPicker } from './status-picker';
+import { WatermelonButton, WatermelonSelect, WatermelonSheet } from './watermelon-system';
 
 export type ClientPanelMode = 'view' | 'create' | 'edit';
 
@@ -58,6 +61,11 @@ interface ClientPanelProps {
 }
 
 const statuses: ClientStatus[] = ['Ativo', 'Instalação', 'Atenção', 'Inativo', 'Pendente'];
+const statusItems = statuses.map((status, index) => ({
+  id: index + 1,
+  emoji: status === 'Ativo' ? '●' : status === 'Instalação' ? '◐' : status === 'Atenção' ? '!' : status === 'Inativo' ? '○' : '…',
+  name: status,
+}));
 
 function shown(value?: string) {
   return value?.trim() || 'Não informado';
@@ -79,15 +87,14 @@ function Field({
   placeholder?: string;
 }) {
   return (
-    <label className="client-field">
-      <span>{label}</span>
-      <input
-        type={type}
-        value={value}
-        placeholder={placeholder}
-        onChange={(event) => onChange(field, event.target.value)}
-      />
-    </label>
+    <FloatingInput
+      label={label}
+      className="client-floating-input"
+      type={type}
+      value={value}
+      placeholder={placeholder}
+      onChange={(event) => onChange(field, event.target.value)}
+    />
   );
 }
 
@@ -111,7 +118,7 @@ export function ClientPanel({
   const locationReady = client?.lat !== undefined && client?.lng !== undefined;
 
   return (
-    <aside
+    <WatermelonSheet
       className={`client-panel ${anchor && mode === 'view' ? 'client-panel-bubble' : ''}`}
       style={anchor && mode === 'view' ? ({
         '--client-anchor-x': `${anchor.x}px`,
@@ -130,7 +137,7 @@ export function ClientPanel({
             <h2>{mode === 'create' ? 'Adicionar cliente' : client?.name}</h2>
           </div>
         </div>
-        <button className="panel-icon-button" onClick={onClose} aria-label="Fechar painel"><X size={18} /></button>
+        <WatermelonButton className="panel-icon-button" onClick={onClose} aria-label="Fechar painel"><X size={18} /></WatermelonButton>
       </header>
 
       {!editing && client ? (
@@ -168,15 +175,15 @@ export function ClientPanel({
             </div>
 
             {client.importIssues?.length ? (
-              <button className="client-quick-warning" onClick={onEdit}>
+              <WatermelonButton className="client-quick-warning" onClick={onEdit}>
                 <AlertTriangle size={14} /><span><b>Corrigir dados importados</b><small>{client.importIssues.join(' · ')}</small></span>
-              </button>
+              </WatermelonButton>
             ) : null}
           </div>
 
           <footer className="client-panel-actions">
-            <button className="panel-secondary" onClick={onRelocate} disabled={busy}><LocateFixed size={16} />{busy ? 'Localizando…' : 'Relocalizar'}</button>
-            <button className="panel-primary" onClick={onEdit} disabled={busy}><Pencil size={16} />Editar</button>
+            <WatermelonButton className="panel-secondary" onClick={onRelocate} disabled={busy}><LocateFixed size={16} />{busy ? 'Localizando…' : 'Relocalizar'}</WatermelonButton>
+            <WatermelonButton className="panel-primary" onClick={onEdit} disabled={busy}><Pencil size={16} />Editar</WatermelonButton>
           </footer>
         </>
       ) : (
@@ -200,9 +207,9 @@ export function ClientPanel({
               <Field label="Bairro" field="neighborhood" value={draft.neighborhood} onChange={onChange} />
               <label className="client-field">
                 <span>Cidade *</span>
-                <select value={draft.city} onChange={(event) => onChange('city', event.target.value)}>
+                <WatermelonSelect value={draft.city} onChange={(event) => onChange('city', event.target.value)}>
                   {cities.map((city) => <option key={`${city.name}-${city.state}`} value={city.name}>{city.name}/{city.state}</option>)}
-                </select>
+                </WatermelonSelect>
               </label>
               <Field label="CEP" field="zip" value={draft.zip} onChange={onChange} />
             </div>
@@ -212,11 +219,16 @@ export function ClientPanel({
             <div className="section-caption">Comercial e contato</div>
             <div className="client-form-grid">
               <Field label="Plano" field="plan" value={draft.plan} onChange={onChange} />
-              <label className="client-field">
+              <label className="client-field client-status-field">
                 <span>Status</span>
-                <select value={draft.status} onChange={(event) => onChange('status', event.target.value)}>
-                  {statuses.map((status) => <option key={status}>{status}</option>)}
-                </select>
+                <StatusPicker
+                  items={statusItems}
+                  value={statuses.indexOf(draft.status) + 1}
+                  onChange={(id) => {
+                    const nextStatus = statuses[id - 1];
+                    if (nextStatus) onChange('status', nextStatus);
+                  }}
+                />
               </label>
               <Field label="Telefone" field="phone" value={draft.phone} onChange={onChange} />
               <Field label="E-mail" field="email" value={draft.email} onChange={onChange} type="email" />
@@ -229,9 +241,9 @@ export function ClientPanel({
             <div className="section-caption">Posição manual — opcional</div>
             <p className="section-help">Preencha as duas coordenadas somente quando souber a posição correta. Sem elas, o sistema tentará localizar o endereço automaticamente.</p>
             {mode === 'edit' && (
-              <button type="button" className="choose-map-position" onClick={onChooseOnMap}>
+              <WatermelonButton type="button" className="choose-map-position" onClick={onChooseOnMap}>
                 <MapPinned size={16} />Escolher no mapa
-              </button>
+              </WatermelonButton>
             )}
             <div className="client-form-grid">
               <Field label="Latitude" field="lat" value={draft.lat} onChange={onChange} placeholder="-23.3402" />
@@ -242,13 +254,13 @@ export function ClientPanel({
           {error && <div className="client-form-error">{error}</div>}
 
           <footer className="client-panel-actions">
-            <button type="button" className="panel-secondary" onClick={onCancel} disabled={busy}>Cancelar</button>
-            <button type="submit" className="panel-primary" disabled={busy}>
+            <WatermelonButton type="button" className="panel-secondary" onClick={onCancel} disabled={busy}>Cancelar</WatermelonButton>
+            <WatermelonButton type="submit" className="panel-primary" disabled={busy}>
               {busy ? <><span className="button-spinner" />Localizando…</> : <><Save size={16} />Salvar e localizar</>}
-            </button>
+            </WatermelonButton>
           </footer>
         </form>
       )}
-    </aside>
+    </WatermelonSheet>
   );
 }

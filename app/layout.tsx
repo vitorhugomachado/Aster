@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  metadataBase: new URL('https://fibra-mapa-guaporema.vitorhugomateo.chatgpt.site'),
+  metadataBase: new URL('https://web-production-684d7.up.railway.app'),
   title: 'aster — Inteligência comercial em cada endereço',
   description: 'Mapeie clientes de fibra por endereço, cidade e status operacional com precisão.',
   applicationName: 'aster',
@@ -23,15 +23,15 @@ export const metadata: Metadata = {
     apple: '/brand/aster-client-pin.png',
   },
   alternates: {
-    canonical: 'https://fibra-mapa-guaporema.vitorhugomateo.chatgpt.site',
+    canonical: 'https://web-production-684d7.up.railway.app',
   },
   openGraph: {
     title: 'aster',
     description: 'Inteligência comercial em cada endereço.',
     type: 'website',
-    url: 'https://fibra-mapa-guaporema.vitorhugomateo.chatgpt.site',
+    url: 'https://web-production-684d7.up.railway.app',
     images: [{
-      url: 'https://fibra-mapa-guaporema.vitorhugomateo.chatgpt.site/og.png',
+      url: 'https://web-production-684d7.up.railway.app/og.png',
       width: 1200,
       height: 630,
       alt: 'aster — Inteligência comercial em cada endereço',
@@ -41,7 +41,7 @@ export const metadata: Metadata = {
     card: 'summary_large_image',
     title: 'aster',
     description: 'Inteligência comercial em cada endereço.',
-    images: ['https://fibra-mapa-guaporema.vitorhugomateo.chatgpt.site/og.png'],
+    images: ['https://web-production-684d7.up.railway.app/og.png'],
   },
 };
 
