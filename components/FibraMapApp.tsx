@@ -2015,7 +2015,7 @@ export function FibraMapApp({ cloudEnabled = false, currentUser }: FibraMapAppPr
             {cloudEnabled ? <Cloud size={12} /> : null}{cloudStatus === 'syncing' ? 'Salvando…' : cloudStatus === 'synced' ? 'Nuvem sincronizada' : cloudStatus === 'error' ? 'Cópia local ativa' : 'Neste dispositivo'}
           </span>
           <WatermelonButton className="icon-button" aria-label="Exportar backup completo" title="Exportar backup completo" onClick={() => void downloadWorkspaceBackup()}><Download size={16} /></WatermelonButton>
-          <WatermelonButton className="profile-button" onClick={() => void logout()} title="Sair do Aster">
+          <WatermelonButton className="profile-button" onClick={() => void logout()} aria-label="Sair do Aster" title="Sair do Aster">
             <span>{(currentUser?.name || 'Stefani').slice(0, 2).toUpperCase()}</span>
             <span className="profile-name">{currentUser?.name || 'Stefani'}<br /><small>{cloudEnabled ? 'Conta protegida' : 'Modo local'}</small></span>
             {cloudEnabled && <LogOut size={14} />}
@@ -2061,10 +2061,10 @@ export function FibraMapApp({ cloudEnabled = false, currentUser }: FibraMapAppPr
         </WatermelonButton>
 
         <nav className="nav-list" aria-label="Navegação principal">
-          <WatermelonButton className={view === 'mapa' ? 'active' : ''} onClick={() => setView('mapa')}><MapPinned size={18} />Mapa de clientes</WatermelonButton>
-          <WatermelonButton className={view === 'oportunidades' ? 'active' : ''} onClick={() => setView('oportunidades')}><Target size={18} />Oportunidades</WatermelonButton>
-          <WatermelonButton className={view === 'lista' ? 'active' : ''} onClick={() => setView('lista')}><List size={18} />Lista de clientes</WatermelonButton>
-          <WatermelonButton className={view === 'importacoes' ? 'active' : ''} onClick={() => setView('importacoes')}><History size={18} />Importações</WatermelonButton>
+          <WatermelonButton className={view === 'mapa' ? 'active' : ''} aria-current={view === 'mapa' ? 'page' : undefined} onClick={() => setView('mapa')}><MapPinned size={18} /><span>Mapa</span></WatermelonButton>
+          <WatermelonButton className={view === 'oportunidades' ? 'active' : ''} aria-current={view === 'oportunidades' ? 'page' : undefined} onClick={() => setView('oportunidades')}><Target size={18} /><span>Oportunidades</span></WatermelonButton>
+          <WatermelonButton className={view === 'lista' ? 'active' : ''} aria-current={view === 'lista' ? 'page' : undefined} onClick={() => setView('lista')}><List size={18} /><span>Clientes</span></WatermelonButton>
+          <WatermelonButton className={view === 'importacoes' ? 'active' : ''} aria-current={view === 'importacoes' ? 'page' : undefined} onClick={() => setView('importacoes')}><History size={18} /><span>Importações</span></WatermelonButton>
         </nav>
 
         <WatermelonCard className="summary-card">

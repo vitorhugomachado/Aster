@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { Geist, Geist_Mono } from 'next/font/google';
 import 'leaflet/dist/leaflet.css';
 import './globals.css';
@@ -43,6 +43,13 @@ export const metadata: Metadata = {
     description: 'Clientes, oportunidades e rotas comerciais em um único mapa.',
     images: ['https://web-production-684d7.up.railway.app/og.png'],
   },
+};
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
+  themeColor: '#ffffff',
 };
 
 export default function RootLayout({
