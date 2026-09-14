@@ -258,18 +258,29 @@ export function ClientMap({
       const center = { lat: client.lat, lng: client.lng };
       const isSelected = client.id === selectedId;
       const isPositioning = client.id === positioningId;
+      const isGroup = client.mapKind === 'group';
 
-      const markerSize = isSelected ? 24 : 18;
+      const markerSize = isGroup ? (isSelected ? 40 : 34) : (isSelected ? 24 : 18);
       const marker = new google.maps.Marker({
         map,
         position: center,
         clickable: true,
-        title: `${client.name} · ${client.status}`,
+        title: isGroup
+          ? `${client.name} · ${client.groupCount ?? 0} clientes`
+          : `${client.name} · ${client.status}`,
         icon: {
           url: '/brand/aster-client-pin.png',
           scaledSize: new google.maps.Size(markerSize, markerSize),
           anchor: new google.maps.Point(markerSize / 2, markerSize - 3),
+          ...(isGroup ? { labelOrigin: new google.maps.Point(markerSize / 2, markerSize * 0.43) } : {}),
         },
+        label: isGroup ? {
+          text: String(client.groupCount ?? 0),
+          color: '#111111',
+          fontSize: markerSize >= 40 ? '11px' : '10px',
+          fontWeight: '900',
+          className: 'aster-group-marker-label',
+        } : undefined,
         draggable: isPositioning,
         animation: isPositioning ? google.maps.Animation.BOUNCE : null,
         zIndex: isSelected ? 20 : 10,
@@ -348,19 +359,29 @@ export function ClientMap({
     located.forEach((client) => {
       const isSelected = client.id === selectedId;
       const isPositioning = client.id === positioningId;
-      const markerSize = isSelected ? 24 : 18;
+      const isGroup = client.mapKind === 'group';
+      const markerSize = isGroup ? (isSelected ? 40 : 34) : (isSelected ? 24 : 18);
       const marker = L.marker([client.lat, client.lng], {
-        icon: L.icon({
-          iconUrl: '/brand/aster-client-pin.png',
-          iconSize: [markerSize, markerSize],
-          iconAnchor: [markerSize / 2, markerSize - 3],
-          tooltipAnchor: [0, -markerSize + 8],
-        }),
+        icon: isGroup
+          ? L.divIcon({
+              className: 'aster-group-marker',
+              html: `<img src="/brand/aster-client-pin.png" alt=""><span>${client.groupCount ?? 0}</span>`,
+              iconSize: [markerSize, markerSize],
+              iconAnchor: [markerSize / 2, markerSize - 3],
+            })
+          : L.icon({
+              iconUrl: '/brand/aster-client-pin.png',
+              iconSize: [markerSize, markerSize],
+              iconAnchor: [markerSize / 2, markerSize - 3],
+              tooltipAnchor: [0, -markerSize + 8],
+            }),
         bubblingMouseEvents: false,
         draggable: isPositioning,
         zIndexOffset: isSelected ? 1000 : 0,
       });
-      marker.bindTooltip(`${client.name} · ${client.status}`, {
+      marker.bindTooltip(isGroup
+        ? `${client.name} · ${client.groupCount ?? 0} clientes`
+        : `${client.name} · ${client.status}`, {
         direction: 'top',
         offset: [0, -8],
         opacity: 0.96,

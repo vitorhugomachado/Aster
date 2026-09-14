@@ -42,6 +42,20 @@ export interface ClientRecord {
   importBatchId?: string;
   importRowNumber?: number;
   importIssues?: string[];
+  mapKind?: 'client' | 'group';
+  groupCount?: number;
+}
+
+export interface RuralClientGroup {
+  id: string;
+  name: string;
+  city: string;
+  state: string;
+  lat: number;
+  lng: number;
+  clientIds: string[];
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface ParsedClient extends ClientRecord {

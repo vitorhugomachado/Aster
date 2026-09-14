@@ -2,6 +2,7 @@
 
 import {
   ChangeEvent,
+  CSSProperties,
   DragEvent,
   useCallback,
   useEffect,
@@ -35,10 +36,12 @@ import {
   SlidersHorizontal,
   Trash2,
   Upload,
+  UsersRound,
   X,
 } from 'lucide-react';
 import { ClientMap } from './ClientMap';
 import { ClientDraft, ClientPanel, ClientPanelMode } from './ClientPanel';
+import { RuralGroupDraft, RuralGroupsModal } from './RuralGroupsModal';
 import paranaMunicipalities from './pr-municipalities.json';
 import {
   CityProfile,
@@ -48,6 +51,7 @@ import {
   HEADER_ALIASES,
   ImportBatch,
   ParsedClient,
+  RuralClientGroup,
   STATUS_COLORS,
   TEMPLATE_CSV,
   normalizeKey,
@@ -90,6 +94,18 @@ const STATUS_OPTIONS: Array<ClientStatus | 'Todos'> = [
 const PARANA_STATE = 'PR';
 const MUNICIPALITIES = paranaMunicipalities as MunicipalityOption[];
 const STORAGE_KEY = 'fibra-mapa:workspace:v1';
+const GROUP_MARKER_PREFIX = 'rural-group:';
+const GROUP_DRAFT_MARKER_ID = `${GROUP_MARKER_PREFIX}draft`;
+
+function groupMarkerId(groupId: string) {
+  return `${GROUP_MARKER_PREFIX}${groupId}`;
+}
+
+function groupIdFromMarker(markerId: string) {
+  return markerId.startsWith(GROUP_MARKER_PREFIX)
+    ? markerId.slice(GROUP_MARKER_PREFIX.length)
+    : null;
+}
 
 const DEFAULT_CITY_PROFILE: CityProfile = {
   ibgeId: 4109104,
@@ -224,6 +240,13 @@ export function FibraMapApp() {
   const [importError, setImportError] = useState('');
   const [dragActive, setDragActive] = useState(false);
   const [history, setHistory] = useState<ImportBatch[]>([]);
+  const [ruralGroups, setRuralGroups] = useState<RuralClientGroup[]>([]);
+  const [ruralGroupsOpen, setRuralGroupsOpen] = useState(false);
+  const [ruralGroupDraft, setRuralGroupDraft] = useState<RuralGroupDraft | null>(null);
+  const [ruralGroupSearch, setRuralGroupSearch] = useState('');
+  const [ruralGroupError, setRuralGroupError] = useState('');
+  const [selectedRuralGroupId, setSelectedRuralGroupId] = useState<string | null>(null);
+  const [ruralGroupPositionDraft, setRuralGroupPositionDraft] = useState<{ lat: number; lng: number } | null>(null);
   const [activeBatchId, setActiveBatchId] = useState<'all' | string>('all');
   const [locationFilter, setLocationFilter] = useState<LocationFilter>('Todos');
   const [batchEditorId, setBatchEditorId] = useState<string | null>(null);
@@ -276,6 +299,22 @@ export function FibraMapApp() {
     [city, clients],
   );
 
+  const cityRuralGroups = useMemo(
+    () => ruralGroups.filter((group) => normalizeKey(group.city) === normalizeKey(city)),
+    [city, ruralGroups],
+  );
+
+  const cityRuralGroupByClientId = useMemo(() => {
+    const result = new Map<string, RuralClientGroup>();
+    cityRuralGroups.forEach((group) => group.clientIds.forEach((clientId) => result.set(clientId, group)));
+    return result;
+  }, [cityRuralGroups]);
+
+  const selectedRuralGroup = cityRuralGroups.find((group) => group.id === selectedRuralGroupId) ?? null;
+  const selectedRuralGroupMembers = selectedRuralGroup
+    ? cityClients.filter((client) => selectedRuralGroup.clientIds.includes(client.id))
+    : [];
+
   const cityHistory = useMemo(
     () => history.filter((batch) => normalizeKey(batch.city) === normalizeKey(city)),
     [city, history],
@@ -301,7 +340,8 @@ export function FibraMapApp() {
     return scopedCityClients.filter((client) => {
       const matchesStatus = status === 'Todos' || client.status === status;
       const matchesPlan = plan === 'Todos' || client.plan === plan;
-      const hasLocation = client.lat !== undefined && client.lng !== undefined;
+      const hasLocation = (client.lat !== undefined && client.lng !== undefined)
+        || cityRuralGroupByClientId.has(client.id);
       const matchesLocation = locationFilter === 'Todos'
         || (locationFilter === 'Mapeados' && hasLocation)
         || (locationFilter === 'Revisar' && (!hasLocation || Boolean(client.importIssues?.length)));
@@ -318,35 +358,93 @@ export function FibraMapApp() {
       ].join(' '));
       return matchesStatus && matchesPlan && matchesLocation && (!search || haystack.includes(search));
     });
-  }, [locationFilter, plan, query, scopedCityClients, status]);
+  }, [cityRuralGroupByClientId, locationFilter, plan, query, scopedCityClients, status]);
 
   const selected = cityClients.find((client) => client.id === selectedId) ?? null;
   const mapClients = useMemo(() => {
-    if (!selected) return visibleClients;
+    const visibleIds = new Set(visibleClients.map((client) => client.id));
+    const groupedIds = new Set(cityRuralGroups.flatMap((group) => group.clientIds));
+    let individualClients = visibleClients.filter((client) => !groupedIds.has(client.id));
     let preview: { lat: number; lng: number } | null = null;
-    if (positionDraft?.clientId === selected.id) {
+    if (selected && positionDraft?.clientId === selected.id) {
       preview = positionDraft;
-    } else if (clientPanelMode === 'edit') {
+    } else if (selected && clientPanelMode === 'edit') {
       const lat = asNumber(normalizeText(clientDraft.lat).replace(',', '.'));
       const lng = asNumber(normalizeText(clientDraft.lng).replace(',', '.'));
       if (lat !== undefined && lng !== undefined && Math.abs(lat) <= 90 && Math.abs(lng) <= 180) {
         preview = { lat, lng };
       }
     }
-    if (!preview) return visibleClients;
-    const previewClient: ClientRecord = {
-      ...selected,
-      lat: preview.lat,
-      lng: preview.lng,
-      locationQuality: 'informada',
-      pendingReason: undefined,
-    };
-    return visibleClients.some((client) => client.id === selected.id)
-      ? visibleClients.map((client) => client.id === selected.id ? previewClient : client)
-      : [...visibleClients, previewClient];
-  }, [clientDraft.lat, clientDraft.lng, clientPanelMode, positionDraft, selected, visibleClients]);
-  const locatedCount = cityClients.filter((client) => client.lat !== undefined && client.lng !== undefined).length;
+    if (selected && preview) {
+      const previewClient: ClientRecord = {
+        ...selected,
+        lat: preview.lat,
+        lng: preview.lng,
+        locationQuality: 'informada',
+        pendingReason: undefined,
+      };
+      individualClients = individualClients.some((client) => client.id === selected.id)
+        ? individualClients.map((client) => client.id === selected.id ? previewClient : client)
+        : [...individualClients, previewClient];
+    }
+
+    const filtersAreClear = !query && status === 'Todos' && plan === 'Todos'
+      && locationFilter === 'Todos' && activeBatchId === 'all';
+    const groupMarkers = cityRuralGroups
+      .filter((group) => filtersAreClear || group.clientIds.some((clientId) => visibleIds.has(clientId)))
+      .map((group): ClientRecord => ({
+        id: groupMarkerId(group.id),
+        name: group.name,
+        street: 'Grupo rural',
+        number: '',
+        complement: '',
+        neighborhood: '',
+        city: group.city,
+        state: group.state,
+        zip: '',
+        status: 'Ativo',
+        plan: 'Grupo rural',
+        lat: ruralGroupPositionDraft && ruralGroupDraft?.id === group.id ? ruralGroupPositionDraft.lat : group.lat,
+        lng: ruralGroupPositionDraft && ruralGroupDraft?.id === group.id ? ruralGroupPositionDraft.lng : group.lng,
+        locationQuality: 'informada',
+        source: 'manual',
+        mapKind: 'group',
+        groupCount: group.clientIds.length,
+      }));
+
+    if (ruralGroupPositionDraft && !ruralGroupDraft?.id) {
+      groupMarkers.push({
+        id: GROUP_DRAFT_MARKER_ID,
+        name: ruralGroupDraft?.name || 'Novo grupo rural',
+        street: 'Grupo rural',
+        number: '',
+        complement: '',
+        neighborhood: '',
+        city,
+        state: activeCityProfile?.state ?? PARANA_STATE,
+        zip: '',
+        status: 'Ativo',
+        plan: 'Grupo rural',
+        lat: ruralGroupPositionDraft.lat,
+        lng: ruralGroupPositionDraft.lng,
+        locationQuality: 'informada',
+        source: 'manual',
+        mapKind: 'group',
+        groupCount: ruralGroupDraft?.clientIds.length ?? 0,
+      });
+    }
+
+    return [...individualClients, ...groupMarkers];
+  }, [activeBatchId, activeCityProfile?.state, city, cityRuralGroups, clientDraft.lat, clientDraft.lng, clientPanelMode, locationFilter, plan, positionDraft, query, ruralGroupDraft, ruralGroupPositionDraft, selected, status, visibleClients]);
+  const locatedCount = cityClients.filter((client) =>
+    (client.lat !== undefined && client.lng !== undefined) || cityRuralGroupByClientId.has(client.id)).length;
   const pendingCount = cityClients.length - locatedCount;
+  const selectedMapMarkerId = ruralGroupPositionDraft
+    ? groupMarkerId(ruralGroupDraft?.id ?? 'draft')
+    : selectedRuralGroup ? groupMarkerId(selectedRuralGroup.id) : selectedId;
+  const positioningMapMarkerId = ruralGroupPositionDraft
+    ? groupMarkerId(ruralGroupDraft?.id ?? 'draft')
+    : positionDraft?.clientId ?? null;
 
   const counts = useMemo(() => {
     return STATUS_OPTIONS.slice(1).reduce<Record<string, number>>((result, option) => {
@@ -356,6 +454,17 @@ export function FibraMapApp() {
   }, [cityClients]);
 
   const handleMapSelect = useCallback((id: string) => {
+    const ruralGroupId = groupIdFromMarker(id);
+    if (ruralGroupId) {
+      if (ruralGroupId === 'draft') return;
+      setSelectedRuralGroupId(ruralGroupId);
+      setSelectedId(null);
+      setClientPanelMode(null);
+      setClientEditorError('');
+      setClientBubbleAnchor(null);
+      return;
+    }
+    setSelectedRuralGroupId(null);
     setSelectedId(id);
     setClientPanelMode('view');
     setClientEditorError('');
@@ -370,6 +479,38 @@ export function FibraMapApp() {
   }, []);
 
   const startPositioning = useCallback((id: string, returnMode: 'view' | 'edit' = 'view') => {
+    const ruralGroupId = groupIdFromMarker(id);
+    if (ruralGroupId) {
+      const group = ruralGroupId === 'draft'
+        ? null
+        : ruralGroups.find((item) => item.id === ruralGroupId) ?? null;
+      const draft = ruralGroupDraft ?? (group ? {
+        id: group.id,
+        name: group.name,
+        clientIds: [...group.clientIds],
+        lat: group.lat,
+        lng: group.lng,
+        createdAt: group.createdAt,
+      } : null);
+      const lat = ruralGroupPositionDraft?.lat ?? draft?.lat ?? activeCityProfile?.center?.lat;
+      const lng = ruralGroupPositionDraft?.lng ?? draft?.lng ?? activeCityProfile?.center?.lng;
+      if (!draft || lat === undefined || lng === undefined) {
+        setToast('Selecione uma cidade válida antes de posicionar o grupo.');
+        return;
+      }
+      setRuralGroupDraft(draft);
+      setRuralGroupPositionDraft({ lat, lng });
+      setSelectedRuralGroupId(group?.id ?? null);
+      setSelectedId(null);
+      setPositionDraft(null);
+      setClientPanelMode(null);
+      setRuralGroupsOpen(false);
+      setClientBubbleAnchor(null);
+      setLocationFilter('Todos');
+      setView('mapa');
+      setToast('Posicione o marcador central do grupo e confirme.');
+      return;
+    }
     const client = clients.find((item) => item.id === id);
     if (!client) return;
     const draftLat = returnMode === 'edit' ? asNumber(normalizeText(clientDraft.lat).replace(',', '.')) : undefined;
@@ -389,9 +530,13 @@ export function FibraMapApp() {
     setLocationFilter('Todos');
     setView('mapa');
     setToast('Modo de posicionamento ativo: arraste o pin ou toque no mapa e confirme.');
-  }, [activeCityProfile?.center?.lat, activeCityProfile?.center?.lng, clientDraft.lat, clientDraft.lng, clients]);
+  }, [activeCityProfile?.center?.lat, activeCityProfile?.center?.lng, clientDraft.lat, clientDraft.lng, clients, ruralGroupDraft, ruralGroupPositionDraft, ruralGroups]);
 
   const handlePositionChange = useCallback((id: string, lat: number, lng: number) => {
+    if (groupIdFromMarker(id)) {
+      setRuralGroupPositionDraft({ lat, lng });
+      return;
+    }
     setPositionDraft((current) => current?.clientId === id ? { ...current, lat, lng } : current);
     setClientDraft((current) => ({ ...current, lat: lat.toFixed(7), lng: lng.toFixed(7) }));
   }, []);
@@ -402,9 +547,18 @@ export function FibraMapApp() {
 
   const handleMarkerPressStart = useCallback(() => {
     setClientPanelMode(null);
+    setSelectedRuralGroupId(null);
   }, []);
 
   const handleMarkerRelease = useCallback((id: string) => {
+    const ruralGroupId = groupIdFromMarker(id);
+    if (ruralGroupId) {
+      if (ruralGroupId !== 'draft') setSelectedRuralGroupId(ruralGroupId);
+      setSelectedId(null);
+      setClientPanelMode(null);
+      return;
+    }
+    setSelectedRuralGroupId(null);
     setSelectedId(id);
     setClientPanelMode('view');
     setClientEditorError('');
@@ -418,6 +572,12 @@ export function FibraMapApp() {
       }
       if (event.key === 'Escape' && importOpen) setImportOpen(false);
       if (event.key === 'Escape' && cityOpen) setCityOpen(false);
+      if (event.key === 'Escape' && ruralGroupsOpen) setRuralGroupsOpen(false);
+      if (event.key === 'Escape' && ruralGroupPositionDraft) {
+        setRuralGroupPositionDraft(null);
+        setRuralGroupsOpen(true);
+      }
+      if (event.key === 'Escape' && selectedRuralGroupId) setSelectedRuralGroupId(null);
       if (event.key === 'Escape' && positionDraft) {
         setPositionDraft(null);
         setClientPanelMode(positionDraft.returnMode);
@@ -429,7 +589,7 @@ export function FibraMapApp() {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [cityOpen, clientPanelMode, importOpen, positionDraft]);
+  }, [cityOpen, clientPanelMode, importOpen, positionDraft, ruralGroupPositionDraft, ruralGroupsOpen, selectedRuralGroupId]);
 
   useEffect(() => {
     if (!toast) return;
@@ -447,6 +607,7 @@ export function FibraMapApp() {
             cityProfiles?: CityProfile[];
             city?: string;
             history?: Array<Omit<ImportBatch, 'importedAt'> & { importedAt: string }>;
+            ruralGroups?: RuralClientGroup[];
           };
           let normalizedHistory = Array.isArray(workspace.history)
             ? workspace.history.map((batch) => ({
@@ -485,6 +646,12 @@ export function FibraMapApp() {
           }
           if (workspace.city) setCity(workspace.city);
           setHistory(normalizedHistory);
+          if (Array.isArray(workspace.ruralGroups)) {
+            setRuralGroups(workspace.ruralGroups.filter((group) =>
+              group && typeof group.id === 'string' && typeof group.name === 'string'
+              && typeof group.lat === 'number' && typeof group.lng === 'number'
+              && Array.isArray(group.clientIds)));
+          }
         }
       } catch {
         window.localStorage.removeItem(STORAGE_KEY);
@@ -503,11 +670,165 @@ export function FibraMapApp() {
         cityProfiles,
         city,
         history,
+        ruralGroups,
       }));
     } catch {
       // Browsers can disable or limit local storage. The live session remains usable.
     }
-  }, [city, cityProfiles, clients, history, storageReady]);
+  }, [city, cityProfiles, clients, history, ruralGroups, storageReady]);
+
+  function openRuralGroups() {
+    if (!activeCityProfile?.center) {
+      setCityError('Cadastre e valide a cidade antes de criar um grupo rural.');
+      setCityOpen(true);
+      return;
+    }
+    setRuralGroupDraft(null);
+    setRuralGroupSearch('');
+    setRuralGroupError('');
+    setRuralGroupsOpen(true);
+  }
+
+  function createRuralGroup() {
+    setRuralGroupDraft({ name: '', clientIds: [] });
+    setRuralGroupSearch('');
+    setRuralGroupError('');
+  }
+
+  function editRuralGroup(group: RuralClientGroup) {
+    setRuralGroupDraft({
+      id: group.id,
+      name: group.name,
+      clientIds: [...group.clientIds],
+      lat: group.lat,
+      lng: group.lng,
+      createdAt: group.createdAt,
+    });
+    setRuralGroupSearch('');
+    setRuralGroupError('');
+  }
+
+  function viewRuralGroup(group: RuralClientGroup) {
+    setRuralGroupsOpen(false);
+    setRuralGroupDraft(null);
+    setSelectedRuralGroupId(group.id);
+    setSelectedId(null);
+    setClientPanelMode(null);
+    setQuery('');
+    setStatus('Todos');
+    setPlan('Todos');
+    setActiveBatchId('all');
+    setLocationFilter('Todos');
+    setView('mapa');
+  }
+
+  function toggleRuralGroupClient(clientId: string) {
+    setRuralGroupDraft((current) => current ? {
+      ...current,
+      clientIds: current.clientIds.includes(clientId)
+        ? current.clientIds.filter((id) => id !== clientId)
+        : [...current.clientIds, clientId],
+    } : current);
+  }
+
+  function chooseRuralGroupLocation() {
+    if (!ruralGroupDraft || !activeCityProfile?.center) return;
+    const lat = ruralGroupDraft.lat ?? activeCityProfile.center.lat;
+    const lng = ruralGroupDraft.lng ?? activeCityProfile.center.lng;
+    setRuralGroupPositionDraft({ lat, lng });
+    setRuralGroupsOpen(false);
+    setSelectedRuralGroupId(ruralGroupDraft.id ?? null);
+    setSelectedId(null);
+    setClientPanelMode(null);
+    setClientBubbleAnchor(null);
+    setView('mapa');
+    setToast('Toque no mapa ou arraste o marcador para o ponto central do grupo.');
+  }
+
+  function cancelRuralGroupPositioning() {
+    setRuralGroupPositionDraft(null);
+    setRuralGroupsOpen(true);
+    setClientBubbleAnchor(null);
+    setToast('Posicionamento do grupo cancelado.');
+  }
+
+  function confirmRuralGroupPositioning() {
+    if (!ruralGroupPositionDraft || !ruralGroupDraft || !activeCityProfile) return;
+    if (activeCityProfile.bounds && (
+      ruralGroupPositionDraft.lat > activeCityProfile.bounds.north
+      || ruralGroupPositionDraft.lat < activeCityProfile.bounds.south
+      || ruralGroupPositionDraft.lng > activeCityProfile.bounds.east
+      || ruralGroupPositionDraft.lng < activeCityProfile.bounds.west
+    )) {
+      setToast(`Escolha um ponto dentro dos limites de ${activeCityProfile.name}/${activeCityProfile.state}.`);
+      return;
+    }
+    setRuralGroupDraft({
+      ...ruralGroupDraft,
+      lat: ruralGroupPositionDraft.lat,
+      lng: ruralGroupPositionDraft.lng,
+    });
+    setRuralGroupPositionDraft(null);
+    setRuralGroupsOpen(true);
+    setClientBubbleAnchor(null);
+    setToast('Local do grupo definido. Agora salve o cadastro.');
+  }
+
+  function saveRuralGroup() {
+    if (!ruralGroupDraft || !activeCityProfile) return;
+    const name = normalizeText(ruralGroupDraft.name);
+    if (!name) {
+      setRuralGroupError('Informe um nome para o grupo rural.');
+      return;
+    }
+    if (ruralGroupDraft.lat === undefined || ruralGroupDraft.lng === undefined) {
+      setRuralGroupError('Escolha o local do marcador no mapa.');
+      return;
+    }
+    const validClientIds = ruralGroupDraft.clientIds.filter((clientId) =>
+      cityClients.some((client) => client.id === clientId));
+    const now = new Date().toISOString();
+    const id = ruralGroupDraft.id ?? crypto.randomUUID();
+    const savedGroup: RuralClientGroup = {
+      id,
+      name,
+      city: activeCityProfile.name,
+      state: activeCityProfile.state,
+      lat: ruralGroupDraft.lat,
+      lng: ruralGroupDraft.lng,
+      clientIds: validClientIds,
+      createdAt: ruralGroupDraft.createdAt ?? now,
+      updatedAt: now,
+    };
+    setRuralGroups((current) => {
+      const movedClientIds = new Set(validClientIds);
+      const withoutMovedClients = current.map((group) => group.id === id ? group : {
+        ...group,
+        clientIds: group.clientIds.filter((clientId) => !movedClientIds.has(clientId)),
+      });
+      return withoutMovedClients.some((group) => group.id === id)
+        ? withoutMovedClients.map((group) => group.id === id ? savedGroup : group)
+        : [...withoutMovedClients, savedGroup];
+    });
+    setRuralGroupsOpen(false);
+    setRuralGroupDraft(null);
+    setRuralGroupSearch('');
+    setRuralGroupError('');
+    setSelectedRuralGroupId(id);
+    setSelectedId(null);
+    setClientPanelMode(null);
+    setView('mapa');
+    setToast(`${name} foi salvo com ${validClientIds.length} cliente${validClientIds.length === 1 ? '' : 's'}.`);
+  }
+
+  function deleteRuralGroup(group: RuralClientGroup) {
+    const confirmed = window.confirm(`Excluir o grupo “${group.name}”? Os clientes continuarão cadastrados e voltarão a aparecer individualmente no mapa.`);
+    if (!confirmed) return;
+    setRuralGroups((current) => current.filter((item) => item.id !== group.id));
+    if (selectedRuralGroupId === group.id) setSelectedRuralGroupId(null);
+    setRuralGroupDraft(null);
+    setToast(`Grupo “${group.name}” excluído. Nenhum cliente foi removido.`);
+  }
 
   function openImporter() {
     if (!activeCityProfile) {
@@ -557,6 +878,7 @@ export function FibraMapApp() {
     setImportCityOverride(profile.name);
     setImportStateOverride(profile.state);
     setSelectedId(null);
+    setSelectedRuralGroupId(null);
     setStatus('Todos');
     setPlan('Todos');
     setActiveBatchId('all');
@@ -937,6 +1259,7 @@ export function FibraMapApp() {
     }
     setClientDraft(blankClientDraft(activeCityProfile));
     setClientEditorError('');
+    setSelectedRuralGroupId(null);
     setSelectedId(null);
     setClientPanelMode('create');
     setView('mapa');
@@ -1017,7 +1340,9 @@ export function FibraMapApp() {
   }
 
   function beginReviewHold(client: ClientRecord) {
-    const needsReview = client.lat === undefined || client.lng === undefined || Boolean(client.importIssues?.length);
+    const grouped = cityRuralGroupByClientId.has(client.id);
+    const needsReview = Boolean(client.importIssues?.length)
+      || (!grouped && (client.lat === undefined || client.lng === undefined));
     if (!needsReview) return;
     clearReviewHold();
     reviewHoldTimerRef.current = window.setTimeout(() => {
@@ -1031,6 +1356,11 @@ export function FibraMapApp() {
     clearReviewHold();
     if (suppressListClickRef.current === client.id) {
       suppressListClickRef.current = null;
+      return;
+    }
+    const ruralGroup = cityRuralGroupByClientId.get(client.id);
+    if (ruralGroup) {
+      viewRuralGroup(ruralGroup);
       return;
     }
     handleMapSelect(client.id);
@@ -1166,6 +1496,12 @@ export function FibraMapApp() {
       const baseClients = current.every((client) => client.source === 'demo') ? [] : current;
       return [...baseClients, resolved];
     });
+    if (original && original.id !== resolved.id) {
+      setRuralGroups((current) => current.map((group) => ({
+        ...group,
+        clientIds: group.clientIds.map((clientId) => clientId === original.id ? resolved.id : clientId),
+      })));
+    }
     setCity(profile.name);
     if (!original?.importBatchId) setActiveBatchId('all');
     setLocationFilter('Todos');
@@ -1330,7 +1666,14 @@ export function FibraMapApp() {
       `Excluir a importação “${batch.name}”? Os ${stats.records.length} clientes vinculados a ela também serão removidos.`,
     );
     if (!confirmed) return;
+    const removedClientIds = new Set(
+      clients.filter((client) => client.importBatchId === batch.id).map((client) => client.id),
+    );
     setClients((current) => current.filter((client) => client.importBatchId !== batch.id));
+    setRuralGroups((current) => current.map((group) => ({
+      ...group,
+      clientIds: group.clientIds.filter((clientId) => !removedClientIds.has(clientId)),
+    })));
     setHistory((current) => current.filter((item) => item.id !== batch.id));
     if (activeBatchId === batch.id) setActiveBatchId('all');
     if (selected?.importBatchId === batch.id) {
@@ -1342,6 +1685,8 @@ export function FibraMapApp() {
 
   function resetDemo() {
     setClients(DEMO_CLIENTS);
+    setRuralGroups([]);
+    setSelectedRuralGroupId(null);
     setCityProfiles([DEFAULT_CITY_PROFILE]);
     setHistory([]);
     setActiveBatchId('all');
@@ -1401,6 +1746,7 @@ export function FibraMapApp() {
             onChange={(event) => {
               setCity(event.target.value);
               setSelectedId(null);
+              setSelectedRuralGroupId(null);
               setStatus('Todos');
               setPlan('Todos');
               setActiveBatchId('all');
@@ -1442,6 +1788,7 @@ export function FibraMapApp() {
         </section>
 
         <button className="manual-button" onClick={openNewClient}><Plus size={16} />Adicionar cliente</button>
+        <button className="rural-groups-button" onClick={openRuralGroups}><UsersRound size={16} />Grupos rurais <span>{cityRuralGroups.length}</span></button>
         <button className="import-button" onClick={openImporter}><Upload size={16} />Importar planilha</button>
         <button className="reset-button" onClick={resetDemo}><RefreshCcw size={13} />Restaurar demonstração</button>
       </aside>
@@ -1458,6 +1805,7 @@ export function FibraMapApp() {
               onChange={(event) => {
                 setCity(event.target.value);
                 setSelectedId(null);
+                setSelectedRuralGroupId(null);
                 setStatus('Todos');
                 setPlan('Todos');
                 setActiveBatchId('all');
@@ -1503,7 +1851,7 @@ export function FibraMapApp() {
               </label>
               <label className="filter-button batch-filter">
                 <span className="filter-label">Importação</span>
-                <select value={activeBatchId} onChange={(event) => { setActiveBatchId(event.target.value); setSelectedId(null); setClientPanelMode(null); }}>
+                <select value={activeBatchId} onChange={(event) => { setActiveBatchId(event.target.value); setSelectedId(null); setSelectedRuralGroupId(null); setClientPanelMode(null); }}>
                   <option value="all">Todos os registros</option>
                   {cityHistory.map((batch) => <option key={batch.id} value={batch.id}>{batch.name} · {batch.importedAt.toLocaleDateString('pt-BR')}</option>)}
                 </select>
@@ -1517,13 +1865,14 @@ export function FibraMapApp() {
                 <ChevronDown size={13} />
               </label>
               <button className="map-add-client" onClick={openNewClient}><Plus size={15} />Novo cliente</button>
+              <button className="map-rural-groups" onClick={openRuralGroups}><UsersRound size={15} />Grupos rurais</button>
             </div>
 
             <ClientMap
               clients={mapClients}
               cityProfile={activeCityProfile}
-              selectedId={selectedId}
-              positioningId={positionDraft?.clientId ?? null}
+              selectedId={selectedMapMarkerId}
+              positioningId={positioningMapMarkerId}
               onSelect={handleMapSelect}
               onStartPositioning={handleStartPositioning}
               onPositionChange={handlePositionChange}
@@ -1542,6 +1891,19 @@ export function FibraMapApp() {
                 </div>
                 <button className="position-cancel" onClick={cancelPositioning}><X size={16} />Cancelar</button>
                 <button className="position-confirm" onClick={confirmPositioning}><CheckCircle2 size={16} />Confirmar local</button>
+              </div>
+            )}
+
+            {ruralGroupPositionDraft && ruralGroupDraft && (
+              <div className="map-position-toolbar rural-position-toolbar" role="dialog" aria-label="Confirmar posição do grupo rural">
+                <span className="position-pulse" aria-hidden="true" />
+                <div>
+                  <b>Posicionando {ruralGroupDraft.name || 'novo grupo rural'}</b>
+                  <small>Marque a entrada, sede ou ponto central que representa toda a comunidade.</small>
+                  <code>{ruralGroupPositionDraft.lat.toFixed(7)}, {ruralGroupPositionDraft.lng.toFixed(7)}</code>
+                </div>
+                <button className="position-cancel" onClick={cancelRuralGroupPositioning}><X size={16} />Cancelar</button>
+                <button className="position-confirm" onClick={confirmRuralGroupPositioning}><CheckCircle2 size={16} />Usar este local</button>
               </div>
             )}
 
@@ -1564,15 +1926,49 @@ export function FibraMapApp() {
               />
             )}
 
+            {selectedRuralGroup && !ruralGroupPositionDraft && (
+              <aside
+                className={`client-panel rural-group-bubble ${clientBubbleAnchor ? 'client-panel-bubble' : ''}`}
+                style={clientBubbleAnchor ? ({
+                  '--client-anchor-x': `${clientBubbleAnchor.x}px`,
+                  '--client-anchor-y': `${clientBubbleAnchor.y}px`,
+                } as CSSProperties) : undefined}
+                aria-label={`Grupo rural ${selectedRuralGroup.name}`}
+              >
+                <header className="client-panel-header">
+                  <div className="client-panel-title">
+                    <span className="client-avatar rural-group-avatar"><UsersRound size={18} /></span>
+                    <div><small>Grupo rural · {selectedRuralGroupMembers.length} clientes</small><h2>{selectedRuralGroup.name}</h2></div>
+                  </div>
+                  <button className="panel-icon-button" onClick={() => { setSelectedRuralGroupId(null); setClientBubbleAnchor(null); }} aria-label="Fechar grupo"><X size={18} /></button>
+                </header>
+                <div className="rural-group-bubble-body">
+                  <div className="rural-group-coordinate"><MapPin size={15} /><span><b>Marcador compartilhado</b><small>{selectedRuralGroup.lat.toFixed(6)}, {selectedRuralGroup.lng.toFixed(6)}</small></span></div>
+                  <div className="rural-group-members-mini">
+                    {selectedRuralGroupMembers.map((client) => (
+                      <span key={client.id}><i>{client.name.slice(0, 2).toUpperCase()}</i><b>{client.name}</b><small>{client.plan || client.externalId || client.id}</small></span>
+                    ))}
+                    {!selectedRuralGroupMembers.length && <p>Nenhum cliente foi adicionado a este grupo.</p>}
+                  </div>
+                </div>
+                <footer className="client-panel-actions">
+                  <button className="panel-secondary" onClick={() => startPositioning(groupMarkerId(selectedRuralGroup.id))}><MapPinned size={16} />Reposicionar</button>
+                  <button className="panel-primary" onClick={() => { editRuralGroup(selectedRuralGroup); setRuralGroupsOpen(true); setSelectedRuralGroupId(null); }}><Pencil size={16} />Editar grupo</button>
+                </footer>
+              </aside>
+            )}
+
             <div className="map-key">
               <span><i className="dot active-dot" />Ativo</span>
               <span><i className="dot install-dot" />Instalação</span>
               <span><i className="dot alert-dot" />Atenção</span>
               <span><i className="dot inactive-dot" />Inativo</span>
+              <span><UsersRound size={12} />Grupo rural</span>
             </div>
 
             <div className="mobile-action-dock" aria-label="Ações rápidas">
               <button className="mobile-import-action" onClick={openImporter} aria-label="Importar planilha"><Upload size={19} /></button>
+              <button className="mobile-rural-action" onClick={openRuralGroups} aria-label="Grupos rurais"><UsersRound size={19} /></button>
               <button className="mobile-primary-action" onClick={openNewClient}><Plus size={21} /><span>Novo cliente</span></button>
             </div>
           </>
@@ -1592,6 +1988,7 @@ export function FibraMapApp() {
                 <button key={option} className={locationFilter === option ? 'active' : ''} onClick={() => setLocationFilter(option)}>{option}</button>
               ))}
               {activeBatch && <button className="clear-batch-filter" onClick={() => { setActiveBatchId('all'); setLocationFilter('Todos'); }}>Ver toda a cidade</button>}
+              <button className="list-rural-groups" onClick={openRuralGroups}><UsersRound size={14} />Grupos rurais</button>
             </div>
             <div className="table-wrap">
               <table>
@@ -1614,7 +2011,11 @@ export function FibraMapApp() {
                       <td>{client.phone || client.email || '—'}</td>
                       <td>{client.plan}</td>
                       <td><span className="status-pill" style={{ color: STATUS_COLORS[client.status] }}><i style={{ background: STATUS_COLORS[client.status] }} />{client.status}</span></td>
-                      <td>{client.lat !== undefined && !client.importIssues?.length ? <span className="mapped"><CheckCircle2 size={14} />Mapeado</span> : <span className="unmapped" title={client.pendingReason}><Clock3 size={14} />{client.importIssues?.length ? 'Corrigir dados' : 'Realocalizar'}</span>}</td>
+                      <td>{cityRuralGroupByClientId.get(client.id)
+                        ? <span className="grouped-location" title={cityRuralGroupByClientId.get(client.id)?.name}><UsersRound size={14} />{cityRuralGroupByClientId.get(client.id)?.name}</span>
+                        : client.lat !== undefined && !client.importIssues?.length
+                          ? <span className="mapped"><CheckCircle2 size={14} />Mapeado</span>
+                          : <span className="unmapped" title={client.pendingReason}><Clock3 size={14} />{client.importIssues?.length ? 'Corrigir dados' : 'Realocalizar'}</span>}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -1641,8 +2042,12 @@ export function FibraMapApp() {
                     <span className="mobile-card-status" style={{ color: STATUS_COLORS[client.status] }}><i style={{ background: STATUS_COLORS[client.status] }} />{client.status}</span>
                   </span>
                   <span className="mobile-client-address"><MapPin size={15} />{client.street ? `${client.street}, ${client.number}` : 'Endereço não informado'}</span>
-                  <span className={client.lat !== undefined && !client.importIssues?.length ? 'mobile-location-ready' : 'mobile-location-pending'}>
-                    {client.lat !== undefined && !client.importIssues?.length ? <><CheckCircle2 size={14} />Localizado no mapa</> : <><Clock3 size={14} />{client.importIssues?.length ? client.importIssues.join(' · ') : 'Requer realocalização'}</>}
+                  <span className={(client.lat !== undefined && !client.importIssues?.length) || cityRuralGroupByClientId.has(client.id) ? 'mobile-location-ready' : 'mobile-location-pending'}>
+                    {cityRuralGroupByClientId.get(client.id)
+                      ? <><UsersRound size={14} />{cityRuralGroupByClientId.get(client.id)?.name}</>
+                      : client.lat !== undefined && !client.importIssues?.length
+                        ? <><CheckCircle2 size={14} />Localizado no mapa</>
+                        : <><Clock3 size={14} />{client.importIssues?.length ? client.importIssues.join(' · ') : 'Requer realocalização'}</>}
                   </span>
                 </button>
               ))}
@@ -1690,6 +2095,39 @@ export function FibraMapApp() {
           </section>
         )}
       </section>
+
+      {ruralGroupsOpen && (
+        <RuralGroupsModal
+          groups={cityRuralGroups}
+          clients={cityClients}
+          draft={ruralGroupDraft}
+          search={ruralGroupSearch}
+          error={ruralGroupError}
+          onSearchChange={setRuralGroupSearch}
+          onClose={() => {
+            setRuralGroupsOpen(false);
+            setRuralGroupDraft(null);
+            setRuralGroupSearch('');
+            setRuralGroupError('');
+          }}
+          onCreate={createRuralGroup}
+          onEdit={editRuralGroup}
+          onView={viewRuralGroup}
+          onDelete={deleteRuralGroup}
+          onBack={() => {
+            setRuralGroupDraft(null);
+            setRuralGroupSearch('');
+            setRuralGroupError('');
+          }}
+          onDraftChange={(patch) => {
+            setRuralGroupDraft((current) => current ? { ...current, ...patch } : current);
+            setRuralGroupError('');
+          }}
+          onToggleClient={toggleRuralGroupClient}
+          onChooseLocation={chooseRuralGroupLocation}
+          onSave={saveRuralGroup}
+        />
+      )}
 
       {importOpen && (
         <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !importBusy) setImportOpen(false); }}>
