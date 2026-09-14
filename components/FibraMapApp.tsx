@@ -12,6 +12,7 @@ import {
 import { readSheet } from 'read-excel-file/browser';
 import * as Papa from 'papaparse';
 import Link from 'next/link';
+import Image from 'next/image';
 import {
   AlertTriangle,
   Bell,
@@ -32,7 +33,6 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   Upload,
-  Wifi,
   X,
 } from 'lucide-react';
 import { ClientMap } from './ClientMap';
@@ -1002,8 +1002,8 @@ export function FibraMapApp() {
     <main className="app-shell">
       <header className="topbar">
         <div className="brand-block">
-          <span className="brand-mark" aria-hidden="true"><Wifi size={20} strokeWidth={2.6} /></span>
-          <div><strong>FibraMapa</strong><span>Inteligência comercial</span></div>
+          <span className="brand-mark" aria-hidden="true"><Image src="/brand/aster-client-pin.png" alt="" width={32} height={32} priority /></span>
+          <div><strong>aster</strong><span>Inteligência comercial</span></div>
         </div>
 
         <label className="search-box">

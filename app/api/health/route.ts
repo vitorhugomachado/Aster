@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 
 export function GET() {
   return NextResponse.json(
-    { status: 'ok', service: 'fibra-mapa' },
+    { status: 'ok', service: 'aster' },
     { headers: { 'Cache-Control': 'no-store' } },
   );
 }

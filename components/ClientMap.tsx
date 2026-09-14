@@ -35,7 +35,7 @@ export function ClientMap({ clients, cityProfile, selectedId, onSelect }: Client
   const frameRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const googleMapRef = useRef<google.maps.Map | null>(null);
-  const googleOverlaysRef = useRef<Array<google.maps.Circle | google.maps.Polygon>>([]);
+  const googleOverlaysRef = useRef<Array<google.maps.Circle | google.maps.Polygon | google.maps.Marker>>([]);
   const googleCityKeyRef = useRef('');
   const googleSelectedRef = useRef<string | null>(null);
   const leafletMapRef = useRef<LeafletMap | null>(null);
@@ -170,10 +170,10 @@ export function ClientMap({ clients, cityProfile, selectedId, onSelect }: Client
         map,
         paths: cityProfile.boundary,
         clickable: false,
-        strokeColor: '#276ef1',
+        strokeColor: '#5a31f4',
         strokeOpacity: 0.72,
         strokeWeight: 2,
-        fillColor: '#276ef1',
+        fillColor: '#5a31f4',
         fillOpacity: 0.025,
         zIndex: 1,
       });
@@ -206,16 +206,17 @@ export function ClientMap({ clients, cityProfile, selectedId, onSelect }: Client
         googleOverlaysRef.current.push(halo);
       }
 
-      const marker = new google.maps.Circle({
+      const markerSize = isSelected ? 58 : 44;
+      const marker = new google.maps.Marker({
         map,
-        center,
-        radius: isSelected ? 23 : 15,
+        position: center,
         clickable: true,
-        strokeColor: '#ffffff',
-        strokeOpacity: 1,
-        strokeWeight: isSelected ? 4 : 3,
-        fillColor: color,
-        fillOpacity: 1,
+        title: `${client.name} · ${client.status}`,
+        icon: {
+          url: '/brand/aster-client-pin.png',
+          scaledSize: new google.maps.Size(markerSize, markerSize),
+          anchor: new google.maps.Point(markerSize / 2, markerSize - 3),
+        },
         zIndex: isSelected ? 20 : 10,
       });
       marker.addListener('click', () => onSelect(client.id));
@@ -269,13 +270,16 @@ export function ClientMap({ clients, cityProfile, selectedId, onSelect }: Client
     located.forEach((client) => {
       const color = STATUS_COLORS[client.status];
       const isSelected = client.id === selectedId;
-      const marker = L.circleMarker([client.lat, client.lng], {
-        radius: isSelected ? 10 : 7,
-        color: '#ffffff',
-        weight: isSelected ? 4 : 3,
-        fillColor: color,
-        fillOpacity: 1,
+      const markerSize = isSelected ? 58 : 44;
+      const marker = L.marker([client.lat, client.lng], {
+        icon: L.icon({
+          iconUrl: '/brand/aster-client-pin.png',
+          iconSize: [markerSize, markerSize],
+          iconAnchor: [markerSize / 2, markerSize - 3],
+          tooltipAnchor: [0, -markerSize + 8],
+        }),
         bubblingMouseEvents: false,
+        zIndexOffset: isSelected ? 1000 : 0,
       });
       marker.bindTooltip(`${client.name} · ${client.status}`, {
         direction: 'top',

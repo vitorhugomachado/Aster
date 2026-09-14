@@ -15,27 +15,32 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://fibra-mapa-guaporema.vitorhugomateo.chatgpt.site'),
-  title: 'FibraMapa — Mapa comercial de clientes',
-  description: 'Visualize clientes de fibra por endereço, cidade e status operacional.',
+  title: 'aster — Inteligência comercial em cada endereço',
+  description: 'Mapeie clientes de fibra por endereço, cidade e status operacional com precisão.',
+  applicationName: 'aster',
+  icons: {
+    icon: '/brand/aster-client-pin.png',
+    apple: '/brand/aster-client-pin.png',
+  },
   alternates: {
     canonical: 'https://fibra-mapa-guaporema.vitorhugomateo.chatgpt.site',
   },
   openGraph: {
-    title: 'FibraMapa',
-    description: 'Clientes de fibra no mapa.',
+    title: 'aster',
+    description: 'Inteligência comercial em cada endereço.',
     type: 'website',
     url: 'https://fibra-mapa-guaporema.vitorhugomateo.chatgpt.site',
     images: [{
       url: 'https://fibra-mapa-guaporema.vitorhugomateo.chatgpt.site/og.png',
       width: 1200,
       height: 630,
-      alt: 'FibraMapa — Clientes de fibra no mapa',
+      alt: 'aster — Inteligência comercial em cada endereço',
     }],
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'FibraMapa',
-    description: 'Clientes de fibra no mapa.',
+    title: 'aster',
+    description: 'Inteligência comercial em cada endereço.',
     images: ['https://fibra-mapa-guaporema.vitorhugomateo.chatgpt.site/og.png'],
   },
 };

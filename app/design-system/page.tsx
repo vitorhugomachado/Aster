@@ -1,10 +1,11 @@
 import Link from 'next/link';
+import Image from 'next/image';
 
 const colors = [
   { name: 'Ink', value: '#000000', style: { background: '#000000', color: '#ffffff' } },
   { name: 'Canvas', value: '#FFFFFF', style: { background: '#ffffff', color: '#000000' } },
   { name: 'Soft gray', value: '#F6F6F6', style: { background: '#f6f6f6', color: '#000000' } },
-  { name: 'Action blue', value: '#276EF1', style: { background: '#276ef1', color: '#ffffff' } },
+  { name: 'Aster violet', value: '#5A31F4', style: { background: '#5a31f4', color: '#ffffff' } },
   { name: 'Positive', value: '#05944F', style: { background: '#05944f', color: '#ffffff' } },
   { name: 'Negative', value: '#E11900', style: { background: '#e11900', color: '#ffffff' } },
 ];
@@ -16,7 +17,7 @@ export default function DesignSystemPage() {
     <div className="design-system-page">
       <header className="ds-header">
         <div>
-          <span className="ds-kicker">FibraMapa / Design System 1.0</span>
+          <span className="ds-kicker">aster / Design System 2.0</span>
           <h1>Clareza para decisões no mapa.</h1>
           <p>
             Uma linguagem visual de alto contraste, modular e acessível para a operação
@@ -31,7 +32,7 @@ export default function DesignSystemPage() {
         <section className="ds-section">
           <div className="ds-section-heading">
             <span>01</span><h2>Cores</h2>
-            <p>Preto e branco estruturam a interface. Azul indica ação; cores semânticas comunicam estado.</p>
+            <p>Preto e branco estruturam a interface. O violeta Aster indica ação; cores semânticas comunicam estado.</p>
           </div>
           <div className="ds-canvas ds-color-grid">
             {colors.map((color) => (
@@ -48,7 +49,7 @@ export default function DesignSystemPage() {
             <p>Geist cria uma hierarquia compacta e legível em painéis densos e telas pequenas.</p>
           </div>
           <div className="ds-canvas">
-            <div className="ds-type-sample"><small>Display / 72 / Bold</small><div className="ds-type-display">Fibra em foco.</div></div>
+            <div className="ds-type-sample"><small>Display / 72 / Bold</small><div className="ds-type-display">aster</div></div>
             <div className="ds-type-sample"><small>Heading / 30 / Bold</small><div className="ds-type-title">Clientes localizados em Guaporema</div></div>
             <div className="ds-type-sample"><small>Body / 16 / Regular</small><div className="ds-type-body">Use frases diretas, números fáceis de comparar e rótulos que expliquem a ação antes do clique.</div></div>
           </div>
@@ -71,7 +72,7 @@ export default function DesignSystemPage() {
         <section className="ds-section">
           <div className="ds-section-heading">
             <span>04</span><h2>Ações</h2>
-            <p>A ação principal é preta. O azul apoia navegação e foco sem competir com os estados do mapa.</p>
+            <p>A ação principal usa o violeta Aster. Preto apoia contraste sem competir com os estados do mapa.</p>
           </div>
           <div className="ds-canvas ds-component-row">
             <button className="ds-button ds-button-primary">Importar clientes</button>
@@ -127,7 +128,9 @@ export default function DesignSystemPage() {
           </div>
           <div className="ds-canvas ds-map-pattern">
             <div className="ds-map-grid" />
-            <span className="ds-map-marker marker-green" /><span className="ds-map-marker marker-orange" /><span className="ds-map-marker marker-red" />
+            <Image className="ds-map-marker marker-green" src="/brand/aster-client-pin.png" alt="Pin de cliente Aster" width={44} height={44} />
+            <Image className="ds-map-marker marker-orange" src="/brand/aster-client-pin.png" alt="" width={44} height={44} />
+            <Image className="ds-map-marker marker-red" src="/brand/aster-client-pin.png" alt="" width={44} height={44} />
             <div className="ds-map-card"><small>Cliente selecionado</small><b>Av. São José, 214</b><span>Ativo · 600 Mega</span></div>
             <div className="ds-map-controls"><button>+</button><button>−</button><button>◎</button></div>
           </div>
