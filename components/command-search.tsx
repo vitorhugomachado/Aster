@@ -1,92 +1,23 @@
 'use client';
 
-import {
-  useState,
-  useMemo,
-  useEffect,
-  useRef,
-  type KeyboardEvent,
-  type FC,
-} from 'react';
-import type { ReactNode } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
-import {
-  Search,
-  User,
-  Bell,
-  HelpCircle,
-  MessageSquare,
-  ArrowRight,
-} from 'lucide-react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
+import { ArrowRight, CornerDownLeft, Search, X } from 'lucide-react';
+import { WatermelonButton, WatermelonInput } from './watermelon-system';
 
 export interface CommandItem {
   id: string;
   title: string;
+  subtitle?: string;
   section: string;
   icon: ReactNode;
   shortcut?: string;
+  keywords?: string[];
   action: () => void;
 }
 
-/*  DEFAULT DATA */
-const DEFAULT_ITEMS: CommandItem[] = [
-  {
-    id: '1',
-    title: 'Calendar',
-    section: 'Suggestions',
-    icon: <ArrowRight size={16} />,
-    action: () => console.log('Calendar'),
-  },
-  {
-    id: '2',
-    title: 'Search Emoji',
-    section: 'Suggestions',
-    icon: <ArrowRight size={16} />,
-    action: () => console.log('Emoji'),
-  },
-  {
-    id: '3',
-    title: 'Calculator',
-    section: 'Suggestions',
-    icon: <ArrowRight size={16} />,
-    action: () => console.log('Calculator'),
-  },
-
-  {
-    id: '4',
-    title: 'Profile',
-    section: 'Settings',
-    icon: <User size={16} />,
-    shortcut: '⌘ P',
-    action: () => console.log('Profile'),
-  },
-  {
-    id: '5',
-    title: 'Notifications',
-    section: 'Settings',
-    icon: <Bell size={16} />,
-    shortcut: '⌘ N',
-    action: () => console.log('Notifications'),
-  },
-
-  {
-    id: '6',
-    title: 'FAQ',
-    section: 'Help',
-    icon: <HelpCircle size={16} />,
-    action: () => console.log('FAQ'),
-  },
-  {
-    id: '7',
-    title: 'Messages',
-    section: 'Help',
-    icon: <MessageSquare size={16} />,
-    action: () => console.log('Messages'),
-  },
-];
-
 interface Props {
-  items?: CommandItem[];
+  items: CommandItem[];
   triggerLabel?: string;
   placeholder?: string;
   shortcutLabel?: string;
@@ -95,251 +26,203 @@ interface Props {
   className?: string;
 }
 
-export const CommandSearch: FC<Props> = ({
-  items = DEFAULT_ITEMS,
-  triggerLabel = 'Buscar…',
-  placeholder = 'Digite para buscar…',
+function normalizeSearch(value: string) {
+  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+}
+
+function itemText(item: CommandItem) {
+  return normalizeSearch([item.title, item.subtitle, item.section, ...(item.keywords ?? [])].filter(Boolean).join(' '));
+}
+
+export function CommandSearch({
+  items,
+  triggerLabel = 'Buscar no Aster',
+  placeholder = 'Busque clientes, endereços ou ações',
   shortcutLabel = 'Ctrl K',
   hotkey = 'k',
   emptyLabel = 'Nenhum resultado encontrado',
   className = '',
-}) => {
+}: Props) {
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [activeIndex, setActiveIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+
+  const searchState = useMemo(() => {
+    const normalizedQuery = normalizeSearch(query);
+    if (!normalizedQuery) {
+      const primaryItems = items.filter((item) => !item.section.startsWith('Clientes em '));
+      const clientPreview = items.filter((item) => item.section.startsWith('Clientes em ')).slice(0, 6);
+      const preview = [...primaryItems, ...clientPreview];
+      return { items: preview, total: preview.length };
+    }
+    const matches = items
+      .filter((item) => itemText(item).includes(normalizedQuery))
+      .sort((left, right) => {
+        const leftTitle = normalizeSearch(left.title);
+        const rightTitle = normalizeSearch(right.title);
+        const leftRank = leftTitle === normalizedQuery ? 0 : leftTitle.startsWith(normalizedQuery) ? 1 : leftTitle.includes(normalizedQuery) ? 2 : 3;
+        const rightRank = rightTitle === normalizedQuery ? 0 : rightTitle.startsWith(normalizedQuery) ? 1 : rightTitle.includes(normalizedQuery) ? 2 : 3;
+        return leftRank - rightRank || left.title.localeCompare(right.title, 'pt-BR');
+      });
+    return { items: matches.slice(0, 80), total: matches.length };
+  }, [items, query]);
+  const filteredItems = searchState.items;
+
+  const sections = useMemo(() => {
+    const groups = new Map<string, CommandItem[]>();
+    filteredItems.forEach((item) => groups.set(item.section, [...(groups.get(item.section) ?? []), item]));
+    return Array.from(groups, ([name, sectionItems]) => ({ name, items: sectionItems }));
+  }, [filteredItems]);
+
+  function openSearch() {
+    setQuery('');
+    setActiveIndex(0);
+    setIsOpen(true);
+  }
+
+  function closeSearch(returnFocus = true) {
+    setIsOpen(false);
+    if (returnFocus) window.setTimeout(() => triggerRef.current?.focus(), 0);
+  }
+
+  function runItem(item: CommandItem) {
+    item.action();
+    setIsOpen(false);
+  }
 
   useEffect(() => {
-    if (isOpen) {
-      const timeout = setTimeout(() => {
-        inputRef.current?.focus();
-      }, 100);
-      return () => clearTimeout(timeout);
-    }
+    if (!isOpen) return;
+    const timer = window.setTimeout(() => inputRef.current?.focus(), 60);
+    return () => window.clearTimeout(timer);
   }, [isOpen]);
 
   useEffect(() => {
-    const handleKeyDown = (e: globalThis.KeyboardEvent) => {
-      if (
-        (e.ctrlKey || e.metaKey) &&
-        e.key.toLowerCase() === hotkey.toLowerCase() &&
-        !isOpen &&
-        document.activeElement?.tagName !== 'INPUT' &&
-        document.activeElement?.tagName !== 'TEXTAREA'
-      ) {
-        e.preventDefault();
-        setIsOpen(true);
-      }
-      if (e.key === 'Escape' && isOpen) {
-        e.preventDefault();
-        e.stopPropagation();
-        setIsOpen(false);
+    const handleGlobalKey = (event: globalThis.KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const isTyping = target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.isContentEditable;
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === hotkey.toLowerCase() && !isTyping) {
+        event.preventDefault();
+        openSearch();
+      } else if (event.key === 'Escape' && isOpen) {
+        event.preventDefault();
+        closeSearch();
       }
     };
-    // Use capture to catch the event before other listeners
-    window.addEventListener('keydown', handleKeyDown, true);
-    return () => window.removeEventListener('keydown', handleKeyDown, true);
+    window.addEventListener('keydown', handleGlobalKey, true);
+    return () => window.removeEventListener('keydown', handleGlobalKey, true);
   }, [hotkey, isOpen]);
 
-  const filteredItems = useMemo(() => {
-    return items.filter((item) =>
-      item.title.toLowerCase().includes(query.toLowerCase()),
-    );
-  }, [query, items]);
-
   useEffect(() => {
-    requestAnimationFrame(() => setActiveIndex(0));
+    const frame = requestAnimationFrame(() => setActiveIndex(0));
+    return () => cancelAnimationFrame(frame);
   }, [query]);
 
-  const sections = useMemo(() => {
-    const groups: { [key: string]: CommandItem[] } = {};
-    filteredItems.forEach((item) => {
-      if (!groups[item.section]) groups[item.section] = [];
-      groups[item.section].push(item);
-    });
-
-    return Object.entries(groups).map(([name, items]) => ({
-      name,
-      items,
-    }));
-  }, [filteredItems]);
-
-  const handleKeyDown = (e: KeyboardEvent) => {
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      setActiveIndex((prev) => (prev + 1) % filteredItems.length);
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      setActiveIndex(
-        (prev) => (prev - 1 + filteredItems.length) % filteredItems.length,
-      );
-    } else if (e.key === 'Enter') {
-      const selectedItem = filteredItems[activeIndex];
-      if (selectedItem) {
-        selectedItem.action();
-        setIsOpen(false);
-      }
+  function handleInputKey(event: KeyboardEvent<HTMLInputElement>) {
+    if (!filteredItems.length) return;
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      setActiveIndex((current) => (current + 1) % filteredItems.length);
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      setActiveIndex((current) => (current - 1 + filteredItems.length) % filteredItems.length);
+    } else if (event.key === 'Enter') {
+      event.preventDefault();
+      const item = filteredItems[activeIndex];
+      if (item) runItem(item);
     }
-  };
-
-  const sharedTransition = {
-    type: 'tween' as const,
-    ease: 'easeOut' as const,
-    duration: 0.15,
-  };
+  }
 
   return (
-    <>
-      <AnimatePresence mode="popLayout">
+    <div data-watermelon="command-search" className={`aster-global-search ${className}`}>
+      <WatermelonButton ref={triggerRef} className="search-trigger" onClick={openSearch} aria-haspopup="dialog" aria-expanded={isOpen}>
+        <span className="search-trigger-icon"><Search size={17} /></span>
+        <span className="search-trigger-copy"><b>{triggerLabel}</b><small>Clientes, endereços e ações</small></span>
+        <kbd>{shortcutLabel}</kbd>
+      </WatermelonButton>
+
+      <AnimatePresence>
         {isOpen && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="fixed inset-0 z-40 bg-zinc-950/20 backdrop-blur-[2px]"
-              onClick={() => setIsOpen(false)}
-            />
+          <>
+            <motion.div className="command-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => closeSearch()} />
+            <motion.section
+              className="command-dialog"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Busca global do Aster"
+              initial={{ opacity: 0, y: -12, scale: .985 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -8, scale: .99 }}
+              transition={{ type: 'spring', stiffness: 460, damping: 38 }}
+            >
+              <header className="command-header">
+                <span className="command-search-icon"><Search size={20} /></span>
+                <WatermelonInput
+                  ref={inputRef}
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  onKeyDown={handleInputKey}
+                  placeholder={placeholder}
+                  aria-label={placeholder}
+                  role="combobox"
+                  aria-controls="aster-command-results"
+                  aria-expanded="true"
+                  aria-activedescendant={filteredItems[activeIndex] ? `command-item-${filteredItems[activeIndex].id}` : undefined}
+                />
+                {query && <WatermelonButton className="command-clear" onClick={() => setQuery('')} aria-label="Limpar busca"><X size={16} /></WatermelonButton>}
+                <WatermelonButton className="command-close" onClick={() => closeSearch()} aria-label="Fechar busca"><span>Esc</span><X size={15} /></WatermelonButton>
+              </header>
+
+              <div className="command-meta">
+                <span>{query ? `${searchState.total} ${searchState.total === 1 ? 'resultado' : 'resultados'}` : 'Acesso rápido'}</span>
+                <small>Pesquise também por rua, número, plano ou status</small>
+              </div>
+
+              <div className="command-results" id="aster-command-results" role="listbox">
+                {!filteredItems.length ? (
+                  <div className="command-empty">
+                    <span><Search size={22} /></span>
+                    <b>{emptyLabel}</b>
+                    <p>Tente somente o nome, a rua ou o número do cliente.</p>
+                  </div>
+                ) : sections.map((section) => (
+                  <section className="command-section" key={section.name}>
+                    <header><span>{section.name}</span><small>{section.items.length}</small></header>
+                    <div>
+                      {section.items.map((item) => {
+                        const globalIndex = filteredItems.findIndex((candidate) => candidate.id === item.id);
+                        const active = globalIndex === activeIndex;
+                        return (
+                          <WatermelonButton
+                            id={`command-item-${item.id}`}
+                            key={item.id}
+                            role="option"
+                            aria-selected={active}
+                            className={`command-result ${active ? 'active' : ''}`}
+                            onMouseEnter={() => setActiveIndex(globalIndex)}
+                            onClick={() => runItem(item)}
+                          >
+                            <span className="command-result-icon">{item.icon}</span>
+                            <span className="command-result-copy"><b>{item.title}</b>{item.subtitle && <small>{item.subtitle}</small>}</span>
+                            {item.shortcut ? <kbd>{item.shortcut}</kbd> : <ArrowRight className="command-result-arrow" size={16} />}
+                          </WatermelonButton>
+                        );
+                      })}
+                    </div>
+                  </section>
+                ))}
+              </div>
+
+              <footer className="command-footer">
+                <span><kbd>↑</kbd><kbd>↓</kbd> navegar</span>
+                <span><kbd><CornerDownLeft size={11} /></kbd> abrir</span>
+                <span>Busca global Aster</span>
+              </footer>
+            </motion.section>
+          </>
         )}
       </AnimatePresence>
-
-      <div data-watermelon="command-search" className={`relative z-50 h-10 w-full ${className}`}>
-        <AnimatePresence mode="popLayout">
-          {!isOpen ? (
-            <motion.button
-              key="trigger"
-              layoutId="command-pallete"
-              onClick={() => setIsOpen(true)}
-              className="group absolute top-0 left-0 flex h-10 w-full items-center gap-3 overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-2 text-[var(--foreground-muted)] shadow-sm hover:border-[var(--border-strong)] hover:text-[var(--foreground)]"
-              transition={sharedTransition}
-            >
-              <motion.div layoutId="search-icon" transition={sharedTransition}>
-                <Search size={16} className="opacity-40" />
-              </motion.div>
-              <motion.span
-                layoutId="search-text"
-                transition={sharedTransition}
-                className="pr-8 text-sm font-medium"
-              >
-                {triggerLabel}
-              </motion.span>
-              <motion.kbd
-                layoutId="search-shortcut"
-                transition={sharedTransition}
-                className="absolute right-2 rounded border border-[var(--border)] bg-[var(--surface-muted)] px-2 py-0.5 text-[14px] font-bold text-[var(--foreground-subtle)] group-hover:text-[var(--foreground-muted)]"
-              >
-                {shortcutLabel}
-              </motion.kbd>
-            </motion.button>
-          ) : (
-            <motion.div
-              layoutId="command-pallete"
-              transition={sharedTransition}
-              className="absolute -top-2 -left-2 z-50 flex h-80 w-xs flex-col overflow-hidden rounded-2xl border-[1.4px] border-[var(--border)] bg-[var(--surface)] shadow-[var(--shadow-overlay)] md:w-[400px]"
-              onClick={(e) => e.stopPropagation()}
-            >
-              {/* Search Header */}
-              <div className="flex items-center border-b-[1.4px] border-[var(--border)] px-4 py-3.5">
-                <motion.div
-                  layoutId="search-icon"
-                  transition={sharedTransition}
-                >
-                  <Search
-                    size={18}
-                    className="mr-3 text-[var(--foreground-subtle)]"
-                    strokeWidth={2.5}
-                  />
-                </motion.div>
-                <div className="relative flex flex-1 items-center">
-                  <input
-                    ref={inputRef}
-                    type="text"
-                    className="w-full bg-transparent text-base font-medium text-[var(--foreground)] outline-none md:text-[15px]"
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                    onKeyDown={handleKeyDown}
-                  />
-                  {!query && (
-                    <motion.span
-                      layoutId="search-text"
-                      transition={sharedTransition}
-                      className="pointer-events-none absolute left-0 text-[15px] font-medium text-[var(--foreground-subtle)]"
-                    >
-                      {placeholder}
-                    </motion.span>
-                  )}
-                </div>
-                <div className="ml-2 flex items-center gap-1.5">
-                  <motion.span
-                    layoutId="search-shortcut"
-                    transition={sharedTransition}
-                    className="rounded-[2px] border border-[var(--border)] bg-[var(--surface-muted)] p-0.5 px-1 text-[11px] font-bold text-[var(--foreground-subtle)]"
-                  >
-                    Esc
-                  </motion.span>
-                </div>
-              </div>
-
-              {/* Results Body */}
-              <div className="custom-scrollbar flex-1 overflow-y-auto p-1.5 md:max-h-[380px]">
-                {filteredItems.length === 0 ? (
-                  <div className="py-12 text-center text-sm text-zinc-500">
-                    {emptyLabel} para “{query}”
-                  </div>
-                ) : (
-                  <div className="space-y-4 py-1">
-                    {sections.map((section) => (
-                      <div key={section.name} className="space-y-1">
-                        <h3 className="px-3 py-1 text-[11px] font-semibold tracking-wider text-[var(--foreground-subtle)] uppercase">
-                          {section.name}
-                        </h3>
-                        <div className="space-y-0.5">
-                          {section.items.map((item) => {
-                            const globalIndex = filteredItems.findIndex(
-                              (fi) => fi.id === item.id,
-                            );
-                            const isActive = globalIndex === activeIndex;
-
-                            return (
-                              <button
-                                key={item.id}
-                                className={`group flex w-full items-center justify-between rounded-md px-3 py-2.5 text-left ${isActive ? 'bg-[var(--primary-soft)] text-[var(--primary-strong)]' : 'text-[var(--foreground-muted)] hover:bg-[var(--surface-muted)] hover:text-[var(--foreground)]'} `}
-                                onMouseEnter={() => setActiveIndex(globalIndex)}
-                                onClick={() => {
-                                  item.action();
-                                  setIsOpen(false);
-                                }}
-                              >
-                                <div className="flex items-center gap-3">
-                                  <span
-                                    className={`${isActive ? 'text-[var(--primary)]' : 'text-[var(--foreground-subtle)] group-hover:text-[var(--foreground-muted)]'}`}
-                                  >
-                                    {item.icon}
-                                  </span>
-                                  <span className="text-[14px] leading-none font-medium">
-                                    {item.title}
-                                  </span>
-                                </div>
-
-                                {item.shortcut && (
-                                  <kbd
-                                    className={`rounded border px-1.5 py-0.5 text-[10px] font-bold ${isActive ? 'border-[var(--primary-border)] bg-[var(--surface)] text-[var(--primary-strong)]' : 'border-transparent bg-transparent text-[var(--foreground-subtle)] group-hover:text-[var(--foreground-muted)]'} `}
-                                  >
-                                    {item.shortcut}
-                                  </kbd>
-                                )}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
-    </>
+    </div>
   );
-};
+}

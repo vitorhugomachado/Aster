@@ -16,7 +16,6 @@ import Link from 'next/link';
 import Image from 'next/image';
 import {
   AlertTriangle,
-  Bell,
   CheckCircle2,
   ChevronDown,
   Clock3,
@@ -1972,20 +1971,22 @@ export function FibraMapApp({ cloudEnabled = false, currentUser }: FibraMapAppPr
   const previewErrors = importPreview?.rows.filter((row) => row.issues.length > 0).length ?? 0;
   const previewTotal = importPreview?.rows.length ?? 0;
   const commandItems: CommandItem[] = [
-    { id: 'open-map', title: 'Abrir mapa de clientes', section: 'Navegação', icon: <MapPinned size={16} />, shortcut: 'M', action: () => setView('mapa') },
-    { id: 'open-opportunities', title: 'Abrir mapa de oportunidades', section: 'Navegação', icon: <Target size={16} />, shortcut: 'O', action: () => setView('oportunidades') },
-    { id: 'open-list', title: 'Abrir lista de clientes', section: 'Navegação', icon: <List size={16} />, shortcut: 'L', action: () => setView('lista') },
-    { id: 'open-imports', title: 'Abrir histórico de importações', section: 'Navegação', icon: <History size={16} />, action: () => setView('importacoes') },
-    { id: 'new-client', title: 'Adicionar novo cliente', section: 'Ações', icon: <Plus size={16} />, action: openNewClient },
-    { id: 'new-import', title: 'Importar planilha', section: 'Ações', icon: <Upload size={16} />, action: openImporter },
-    { id: 'rural-groups', title: 'Gerenciar grupos rurais', section: 'Ações', icon: <UsersRound size={16} />, action: openRuralGroups },
-    { id: 'aster-ai', title: 'Conversar com o Aster IA', section: 'Ações', icon: <Sparkles size={16} />, action: () => setAssistantOpen(true) },
-    { id: 'export-workspace', title: 'Exportar backup completo', section: 'Ações', icon: <Download size={16} />, action: () => void downloadWorkspaceBackup() },
-    ...cityClients.slice(0, 60).map((client): CommandItem => ({
+    { id: 'open-map', title: 'Mapa de clientes', subtitle: 'Visualizar clientes e grupos na cidade ativa', section: 'Navegação', icon: <MapPinned size={16} />, shortcut: 'M', keywords: ['localização', 'pins'], action: () => setView('mapa') },
+    { id: 'open-opportunities', title: 'Mapa de oportunidades', subtitle: 'Leads, zonas comerciais e rotas de visita', section: 'Navegação', icon: <Target size={16} />, shortcut: 'O', keywords: ['leads', 'crm', 'prospecção'], action: () => setView('oportunidades') },
+    { id: 'open-list', title: 'Lista de clientes', subtitle: 'Pesquisar, filtrar, editar ou realocar registros', section: 'Navegação', icon: <List size={16} />, shortcut: 'L', keywords: ['tabela', 'cadastro'], action: () => setView('lista') },
+    { id: 'open-imports', title: 'Histórico de importações', subtitle: 'Alternar, renomear ou excluir lotes importados', section: 'Navegação', icon: <History size={16} />, keywords: ['excel', 'planilha', 'lotes'], action: () => setView('importacoes') },
+    { id: 'new-client', title: 'Adicionar cliente', subtitle: 'Criar um cadastro manual na cidade ativa', section: 'Ações rápidas', icon: <Plus size={16} />, keywords: ['novo', 'cadastro'], action: openNewClient },
+    { id: 'new-import', title: 'Importar planilha', subtitle: 'Carregar clientes de um arquivo XLSX ou CSV', section: 'Ações rápidas', icon: <Upload size={16} />, keywords: ['excel', 'arquivo'], action: openImporter },
+    { id: 'rural-groups', title: 'Gerenciar grupos rurais', subtitle: 'Agrupar clientes em uma única localização', section: 'Ações rápidas', icon: <UsersRound size={16} />, keywords: ['vila rural', 'grupo'], action: openRuralGroups },
+    { id: 'aster-ai', title: 'Conversar com o Aster IA', subtitle: 'Pesquisar informações da operação em linguagem natural', section: 'Ações rápidas', icon: <Sparkles size={16} />, keywords: ['gemini', 'assistente'], action: () => setAssistantOpen(true) },
+    { id: 'export-workspace', title: 'Exportar backup completo', subtitle: 'Baixar uma cópia segura de toda a base', section: 'Ações rápidas', icon: <Download size={16} />, keywords: ['json', 'dados'], action: () => void downloadWorkspaceBackup() },
+    ...cityClients.slice(0, 5_000).map((client): CommandItem => ({
       id: `client-${client.id}`,
-      title: `${client.name} · ${client.street || 'endereço não informado'}, ${client.number || 's/n'}`,
-      section: 'Clientes',
+      title: client.name,
+      subtitle: `${client.street || 'Endereço não informado'}, ${client.number || 's/n'}${client.neighborhood ? ` · ${client.neighborhood}` : ''}`,
+      section: `Clientes em ${city}`,
       icon: <MapPin size={16} />,
+      keywords: [client.id, client.externalId ?? '', client.zip, client.plan, client.status, client.phone ?? ''],
       action: () => openClientFromList(client),
     })),
   ];
@@ -2001,8 +2002,8 @@ export function FibraMapApp({ cloudEnabled = false, currentUser }: FibraMapAppPr
         <CommandSearch
           className="aster-command-search"
           items={commandItems}
-          triggerLabel="Buscar cliente ou ação"
-          placeholder="Cliente, endereço ou ação…"
+          triggerLabel={`Buscar em ${city}`}
+          placeholder="Nome, rua, número, plano ou ação"
           shortcutLabel="Ctrl K"
           emptyLabel="Nada encontrado"
         />
@@ -2014,7 +2015,6 @@ export function FibraMapApp({ cloudEnabled = false, currentUser }: FibraMapAppPr
             {cloudEnabled ? <Cloud size={12} /> : null}{cloudStatus === 'syncing' ? 'Salvando…' : cloudStatus === 'synced' ? 'Nuvem sincronizada' : cloudStatus === 'error' ? 'Cópia local ativa' : 'Neste dispositivo'}
           </span>
           <WatermelonButton className="icon-button" aria-label="Exportar backup completo" title="Exportar backup completo" onClick={() => void downloadWorkspaceBackup()}><Download size={16} /></WatermelonButton>
-          <WatermelonButton className="icon-button" aria-label="Notificações"><Bell size={16} /></WatermelonButton>
           <WatermelonButton className="profile-button" onClick={() => void logout()} title="Sair do Aster">
             <span>{(currentUser?.name || 'Stefani').slice(0, 2).toUpperCase()}</span>
             <span className="profile-name">{currentUser?.name || 'Stefani'}<br /><small>{cloudEnabled ? 'Conta protegida' : 'Modo local'}</small></span>
