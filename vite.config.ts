@@ -41,21 +41,24 @@ export default defineConfig(async () => {
   process.env.WRANGLER_LOG_PATH ??= '.wrangler/logs';
   process.env.MINIFLARE_REGISTRY_PATH ??= '.wrangler/registry';
 
-  // Wrangler snapshots its log path while the Cloudflare plugin is imported.
-  const { cloudflare } = await import('@cloudflare/vite-plugin');
+  const isRailway = process.env.DEPLOY_TARGET === 'railway';
+  // The Cloudflare plugin selects `workerd` dependency exports. Railway runs
+  // the Node server build, so enabling it there would bundle PostgreSQL's
+  // `cloudflare:sockets` adapter instead of the native Node driver.
+  const cloudflarePlugin = isRailway
+    ? null
+    : (await import('@cloudflare/vite-plugin')).cloudflare({
+        viteEnvironment: { name: 'rsc', childEnvironments: ['ssr'] },
+        config: localBindingConfig,
+      });
 
   return {
     css: { postcss: { plugins: [tailwindcss()] } },
     server: isCodexSeatbeltSandbox
       ? { watch: { useFsEvents: false, usePolling: true } }
       : undefined,
-    plugins: [
-      vinext(),
-      sites(),
-      cloudflare({
-        viteEnvironment: { name: 'rsc', childEnvironments: ['ssr'] },
-        config: localBindingConfig,
-      }),
-    ],
+    plugins: isRailway
+      ? [vinext()]
+      : [vinext(), sites(), cloudflarePlugin!],
   };
 });
