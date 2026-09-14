@@ -18,6 +18,7 @@ export function db() {
       idle_timeout: 20,
       connect_timeout: 15,
       prepare: false,
+      ...(connectionString.includes('.railway.internal') ? { ssl: 'require' as const } : {}),
     });
   }
   return client;

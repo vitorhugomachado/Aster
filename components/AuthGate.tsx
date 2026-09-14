@@ -1,10 +1,11 @@
 'use client';
 
-import { FormEvent, type ReactNode, useEffect, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import Image from 'next/image';
 import { LoaderCircle, LockKeyhole, LogIn, ShieldCheck } from 'lucide-react';
 import { FloatingInput } from './floating-input';
 import { WatermelonButton, WatermelonCard } from './watermelon-system';
+import { FibraMapApp } from './FibraMapApp';
 
 interface SessionState {
   configured: boolean;
@@ -14,7 +15,7 @@ interface SessionState {
   user?: { id: string; email: string; name: string } | null;
 }
 
-export function AuthGate({ children }: { children: (cloudEnabled: boolean, user: SessionState['user']) => ReactNode }) {
+export function AuthGate() {
   const [session, setSession] = useState<SessionState | null>(null);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -47,8 +48,8 @@ export function AuthGate({ children }: { children: (cloudEnabled: boolean, user:
   }
 
   if (!session) return <main className="auth-shell"><LoaderCircle className="auth-spinner" size={28} /><span>Preparando o Aster…</span></main>;
-  if (!session.configured) return <>{children(false, null)}</>;
-  if (session.authenticated) return <>{children(true, session.user)}</>;
+  if (!session.configured) return <FibraMapApp cloudEnabled={false} />;
+  if (session.authenticated) return <FibraMapApp cloudEnabled currentUser={session.user ?? undefined} />;
 
   return (
     <main className="auth-shell">
