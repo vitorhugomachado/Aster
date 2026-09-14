@@ -396,6 +396,16 @@ export function FibraMapApp() {
     startPositioning(id, 'view');
   }, [startPositioning]);
 
+  const handleMarkerPressStart = useCallback(() => {
+    setClientPanelMode(null);
+  }, []);
+
+  const handleMarkerRelease = useCallback((id: string) => {
+    setSelectedId(id);
+    setClientPanelMode('view');
+    setClientEditorError('');
+  }, []);
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
@@ -1466,6 +1476,8 @@ export function FibraMapApp() {
               onSelect={handleMapSelect}
               onStartPositioning={handleStartPositioning}
               onPositionChange={handlePositionChange}
+              onMarkerPressStart={handleMarkerPressStart}
+              onMarkerRelease={handleMarkerRelease}
               onMarkerAnchorChange={handleMarkerAnchorChange}
             />
 

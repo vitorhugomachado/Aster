@@ -14,6 +14,8 @@ interface ClientMapProps {
   onSelect: (id: string) => void;
   onStartPositioning: (id: string) => void;
   onPositionChange: (id: string, lat: number, lng: number) => void;
+  onMarkerPressStart: (id: string) => void;
+  onMarkerRelease: (id: string) => void;
   onMarkerAnchorChange: (anchor: { x: number; y: number } | null) => void;
 }
 
@@ -43,6 +45,8 @@ export function ClientMap({
   onSelect,
   onStartPositioning,
   onPositionChange,
+  onMarkerPressStart,
+  onMarkerRelease,
   onMarkerAnchorChange,
 }: ClientMapProps) {
   const frameRef = useRef<HTMLDivElement>(null);
@@ -62,6 +66,8 @@ export function ClientMap({
   const leafletPositionHandlerRef = useRef<((event: import('leaflet').LeafletMouseEvent) => void) | null>(null);
   const holdTimerRef = useRef<number | null>(null);
   const holdTriggeredRef = useRef<string | null>(null);
+  const releaseHandledRef = useRef<string | null>(null);
+  const pressedClientRef = useRef<string | null>(null);
   const [provider, setProvider] = useState<MapProvider>('loading');
 
   const clearHold = useCallback(() => {
@@ -69,15 +75,38 @@ export function ClientMap({
     holdTimerRef.current = null;
   }, []);
 
-  const beginHold = useCallback((clientId: string) => {
+  const beginPress = useCallback((clientId: string, enableLongPress: boolean) => {
     clearHold();
+    pressedClientRef.current = clientId;
     holdTriggeredRef.current = null;
+    releaseHandledRef.current = null;
+    onMarkerPressStart(clientId);
+    if (!enableLongPress) return;
     holdTimerRef.current = window.setTimeout(() => {
       holdTriggeredRef.current = clientId;
       navigator.vibrate?.([90, 45, 90]);
       onStartPositioning(clientId);
     }, 5000);
-  }, [clearHold, onStartPositioning]);
+  }, [clearHold, onMarkerPressStart, onStartPositioning]);
+
+  const finishPress = useCallback(() => {
+    const clientId = pressedClientRef.current;
+    if (!clientId) return;
+    clearHold();
+    pressedClientRef.current = null;
+    releaseHandledRef.current = clientId;
+    onMarkerRelease(clientId);
+  }, [clearHold, onMarkerRelease]);
+
+  useEffect(() => {
+    const finishAfterMapEvents = () => window.setTimeout(finishPress, 0);
+    window.addEventListener('pointerup', finishAfterMapEvents);
+    window.addEventListener('pointercancel', finishAfterMapEvents);
+    return () => {
+      window.removeEventListener('pointerup', finishAfterMapEvents);
+      window.removeEventListener('pointercancel', finishAfterMapEvents);
+    };
+  }, [finishPress]);
 
   useEffect(() => {
     let cancelled = false;
@@ -245,16 +274,18 @@ export function ClientMap({
         animation: isPositioning ? google.maps.Animation.BOUNCE : null,
         zIndex: isSelected ? 20 : 10,
       });
-      marker.addListener('mousedown', () => beginHold(client.id));
-      marker.addListener('mouseup', clearHold);
+      marker.addListener('mousedown', () => beginPress(client.id, !isPositioning));
+      marker.addListener('mouseup', finishPress);
       marker.addListener('mouseout', clearHold);
       marker.addListener('dragstart', clearHold);
       marker.addListener('dragend', () => {
         const position = marker.getPosition();
         if (position && isPositioning) onPositionChange(client.id, position.lat(), position.lng());
+        finishPress();
       });
       marker.addListener('click', () => {
-        if (holdTriggeredRef.current === client.id) {
+        if (releaseHandledRef.current === client.id || holdTriggeredRef.current === client.id) {
+          releaseHandledRef.current = null;
           holdTriggeredRef.current = null;
           return;
         }
@@ -295,7 +326,7 @@ export function ClientMap({
           if (point) onPositionChange(positioningId, point.lat(), point.lng());
         })
       : null;
-  }, [beginHold, cityProfile, clearHold, clients, onPositionChange, onSelect, positioningId, provider, selectedId]);
+  }, [beginPress, cityProfile, clearHold, clients, finishPress, onPositionChange, onSelect, positioningId, provider, selectedId]);
 
   useEffect(() => {
     const L = leafletRef.current;
@@ -334,16 +365,19 @@ export function ClientMap({
         offset: [0, -8],
         opacity: 0.96,
       });
-      marker.on('mousedown touchstart', () => beginHold(client.id));
-      marker.on('mouseup touchend mouseout', clearHold);
+      marker.on('mousedown touchstart', () => beginPress(client.id, !isPositioning));
+      marker.on('mouseup touchend', finishPress);
+      marker.on('mouseout', clearHold);
       marker.on('dragstart', clearHold);
       marker.on('dragend', () => {
         if (!isPositioning) return;
         const point = marker.getLatLng();
         onPositionChange(client.id, point.lat, point.lng);
+        finishPress();
       });
       marker.on('click', () => {
-        if (holdTriggeredRef.current === client.id) {
+        if (releaseHandledRef.current === client.id || holdTriggeredRef.current === client.id) {
+          releaseHandledRef.current = null;
           holdTriggeredRef.current = null;
           return;
         }
@@ -392,7 +426,7 @@ export function ClientMap({
     } else {
       leafletPositionHandlerRef.current = null;
     }
-  }, [beginHold, cityProfile, clearHold, clients, onPositionChange, onSelect, positioningId, provider, selectedId]);
+  }, [beginPress, cityProfile, clearHold, clients, finishPress, onPositionChange, onSelect, positioningId, provider, selectedId]);
 
   useEffect(() => {
     const selectedClient = clients.find((client) => client.id === selectedId);
@@ -401,7 +435,7 @@ export function ClientMap({
     googleAnchorOverlayRef.current?.setMap(null);
     googleAnchorOverlayRef.current = null;
     const googleMap = googleMapRef.current;
-    if (provider === 'google' && googleMap && hasPosition && !positioningId) {
+    if (provider === 'google' && googleMap && hasPosition) {
       const overlay = new google.maps.OverlayView();
       overlay.onAdd = () => undefined;
       overlay.draw = () => {
@@ -424,7 +458,7 @@ export function ClientMap({
       leafletMap.off('move zoom resize', leafletAnchorHandlerRef.current);
       leafletAnchorHandlerRef.current = null;
     }
-    if (provider === 'demo' && leafletMap && hasPosition && !positioningId) {
+    if (provider === 'demo' && leafletMap && hasPosition) {
       const updateAnchor = () => {
         const point = leafletMap.latLngToContainerPoint([selectedClient.lat!, selectedClient.lng!]);
         onMarkerAnchorChange({ x: point.x, y: point.y });
