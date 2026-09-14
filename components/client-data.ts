@@ -33,6 +33,10 @@ export interface ClientRecord {
   pendingReason?: string;
   lat?: number;
   lng?: number;
+  suggestedLat?: number;
+  suggestedLng?: number;
+  suggestedAddress?: string;
+  suggestionSource?: string;
   locationQuality: LocationQuality;
   source: 'demo' | 'importação' | 'manual';
   importBatchId?: string;

@@ -128,6 +128,10 @@ function recordFromParsed(row: ParsedClient): ClientRecord {
     pendingReason: row.pendingReason,
     lat: row.lat,
     lng: row.lng,
+    suggestedLat: row.suggestedLat,
+    suggestedLng: row.suggestedLng,
+    suggestedAddress: row.suggestedAddress,
+    suggestionSource: row.suggestionSource,
     locationQuality: row.locationQuality,
     source: row.source,
     importBatchId: row.importBatchId,
@@ -370,8 +374,8 @@ export function FibraMapApp() {
     if (!client) return;
     const draftLat = returnMode === 'edit' ? asNumber(normalizeText(clientDraft.lat).replace(',', '.')) : undefined;
     const draftLng = returnMode === 'edit' ? asNumber(normalizeText(clientDraft.lng).replace(',', '.')) : undefined;
-    const lat = draftLat ?? client.lat ?? activeCityProfile?.center?.lat;
-    const lng = draftLng ?? client.lng ?? activeCityProfile?.center?.lng;
+    const lat = draftLat ?? client.lat ?? client.suggestedLat ?? activeCityProfile?.center?.lat;
+    const lng = draftLng ?? client.lng ?? client.suggestedLng ?? activeCityProfile?.center?.lng;
     if (lat === undefined || lng === undefined) {
       setToast('Selecione uma cidade válida antes de posicionar o cliente.');
       return;
@@ -792,13 +796,41 @@ export function FibraMapApp() {
         .map((row, index) => ({ row, index }))
         .filter(({ row }) => row.issues.length === 0 && row.needsGeocoding);
       const resolvedRows = [...rows];
+      const geocodeCache = new Map<string, Promise<Pick<
+        ClientRecord,
+        'lat' | 'lng' | 'suggestedLat' | 'suggestedLng' | 'suggestedAddress' | 'suggestionSource' | 'pendingReason' | 'locationQuality'
+      >>>();
       setGeocodeProgress({ done: 0, total: indexesToLocate.length });
       for (let start = 0; start < indexesToLocate.length; start += 5) {
         const batch = indexesToLocate.slice(start, start + 5);
-        const results = await Promise.all(batch.map(async ({ row, index }) => ({
-          index,
-          resolved: await geocode(row, importCityProfile.ibgeId),
-        })));
+        const results = await Promise.all(batch.map(async ({ row, index }) => {
+          const addressKey = [
+            importCityProfile.ibgeId,
+            row.street,
+            row.number,
+            row.neighborhood,
+            row.zip,
+          ].map((value) => normalizeKey(value)).join('|');
+          let cachedLocation = geocodeCache.get(addressKey);
+          if (!cachedLocation) {
+            cachedLocation = geocode(row, importCityProfile.ibgeId).then((resolved) => ({
+              lat: resolved.lat,
+              lng: resolved.lng,
+              suggestedLat: resolved.suggestedLat,
+              suggestedLng: resolved.suggestedLng,
+              suggestedAddress: resolved.suggestedAddress,
+              suggestionSource: resolved.suggestionSource,
+              pendingReason: resolved.pendingReason,
+              locationQuality: resolved.locationQuality,
+            }));
+            geocodeCache.set(addressKey, cachedLocation);
+          }
+          const location = await cachedLocation;
+          return {
+            index,
+            resolved: { ...recordFromParsed(row), ...location },
+          };
+        }));
         for (const { index, resolved } of results) {
           resolvedRows[index] = { ...resolvedRows[index], ...resolved, needsGeocoding: false };
         }
@@ -847,6 +879,9 @@ export function FibraMapApp() {
         lng?: number;
         quality?: 'exata' | 'aproximada';
         message?: string;
+        suggestedLocation?: { lat?: number; lng?: number };
+        suggestedAddress?: string;
+        suggestionSource?: string;
       };
       if (
         !response.ok
@@ -857,6 +892,10 @@ export function FibraMapApp() {
         return {
           ...base,
           pendingReason: result.message || 'Endereço não confirmado dentro da cidade ativa.',
+          suggestedLat: typeof result.suggestedLocation?.lat === 'number' ? result.suggestedLocation.lat : undefined,
+          suggestedLng: typeof result.suggestedLocation?.lng === 'number' ? result.suggestedLocation.lng : undefined,
+          suggestedAddress: result.suggestedAddress || undefined,
+          suggestionSource: result.suggestionSource || undefined,
           locationQuality: 'pendente',
         };
       }
@@ -864,6 +903,10 @@ export function FibraMapApp() {
         ...base,
         lat: result.lat,
         lng: result.lng,
+        suggestedLat: undefined,
+        suggestedLng: undefined,
+        suggestedAddress: undefined,
+        suggestionSource: undefined,
         pendingReason: undefined,
         locationQuality: result.quality,
       };
@@ -948,6 +991,10 @@ export function FibraMapApp() {
       ...client,
       lat: positionDraft.lat,
       lng: positionDraft.lng,
+      suggestedLat: undefined,
+      suggestedLng: undefined,
+      suggestedAddress: undefined,
+      suggestionSource: undefined,
       locationQuality: 'informada',
       pendingReason: undefined,
     } : client));
@@ -1095,6 +1142,10 @@ export function FibraMapApp() {
         ...recordFromParsed(base),
         lat,
         lng,
+        suggestedLat: undefined,
+        suggestedLng: undefined,
+        suggestedAddress: undefined,
+        suggestionSource: undefined,
         locationQuality: coordinatesChanged || !original ? 'informada' : original.locationQuality,
         pendingReason: undefined,
       };

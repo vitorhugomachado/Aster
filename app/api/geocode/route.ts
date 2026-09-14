@@ -34,6 +34,51 @@ interface GoogleGeocodeResponse {
   results?: GoogleGeocodeResult[];
 }
 
+interface AddressValidationComponent {
+  componentName?: { text?: string; languageCode?: string };
+  componentType?: string;
+  confirmationLevel?: string;
+  inferred?: boolean;
+  spellCorrected?: boolean;
+  replaced?: boolean;
+  unexpected?: boolean;
+}
+
+interface AddressValidationResponse {
+  result?: {
+    verdict?: {
+      inputGranularity?: string;
+      validationGranularity?: string;
+      geocodeGranularity?: string;
+      addressComplete?: boolean;
+      hasUnconfirmedComponents?: boolean;
+      hasInferredComponents?: boolean;
+      hasReplacedComponents?: boolean;
+    };
+    address?: {
+      formattedAddress?: string;
+      postalAddress?: {
+        regionCode?: string;
+        administrativeArea?: string;
+        locality?: string;
+        postalCode?: string;
+        addressLines?: string[];
+      };
+      addressComponents?: AddressValidationComponent[];
+      missingComponentTypes?: string[];
+      unconfirmedComponentTypes?: string[];
+      unresolvedTokens?: string[];
+    };
+    geocode?: {
+      location?: { latitude?: number; longitude?: number };
+      placeId?: string;
+      placeTypes?: string[];
+    };
+  };
+  responseId?: string;
+  error?: { message?: string; status?: string };
+}
+
 const WINDOW_MS = 60_000;
 const MAX_REQUESTS_PER_WINDOW = 2_000;
 const rateWindows = new Map<string, { count: number; startedAt: number }>();
@@ -70,6 +115,19 @@ function exactStreet(expected: string, actual: string) {
   return Boolean(expected && actual && normalizeStreet(expected) === normalizeStreet(actual));
 }
 
+function exactState(expected: string, actual: string) {
+  if (exact(expected, actual)) return true;
+  const stateNames: Record<string, string> = {
+    AC: 'Acre', AL: 'Alagoas', AP: 'Amapá', AM: 'Amazonas', BA: 'Bahia', CE: 'Ceará',
+    DF: 'Distrito Federal', ES: 'Espírito Santo', GO: 'Goiás', MA: 'Maranhão', MT: 'Mato Grosso',
+    MS: 'Mato Grosso do Sul', MG: 'Minas Gerais', PA: 'Pará', PB: 'Paraíba', PR: 'Paraná',
+    PE: 'Pernambuco', PI: 'Piauí', RJ: 'Rio de Janeiro', RN: 'Rio Grande do Norte',
+    RS: 'Rio Grande do Sul', RO: 'Rondônia', RR: 'Roraima', SC: 'Santa Catarina',
+    SP: 'São Paulo', SE: 'Sergipe', TO: 'Tocantins',
+  };
+  return exact(stateNames[expected] ?? '', actual);
+}
+
 function distanceKm(from: { lat: number; lng: number }, to: { lat: number; lng: number }) {
   const radians = (value: number) => value * Math.PI / 180;
   const latDelta = radians(to.lat - from.lat);
@@ -85,6 +143,33 @@ function component(result: GoogleGeocodeResult, ...types: string[]) {
     if (match) return match;
   }
   return undefined;
+}
+
+function validationComponent(data: AddressValidationResponse, ...types: string[]) {
+  for (const type of types) {
+    const match = data.result?.address?.addressComponents?.find((item) => item.componentType === type);
+    if (match) return match;
+  }
+  return undefined;
+}
+
+function reviewResponse(
+  code: string,
+  message: string,
+  suggestion?: { lat: number; lng: number; source: string; formattedAddress?: string },
+) {
+  return NextResponse.json(
+    {
+      code,
+      message,
+      ...(suggestion ? {
+        suggestedLocation: { lat: suggestion.lat, lng: suggestion.lng },
+        suggestionSource: suggestion.source,
+        suggestedAddress: suggestion.formattedAddress ?? '',
+      } : {}),
+    },
+    { status: 422, headers: { 'Cache-Control': 'no-store' } },
+  );
 }
 
 function allowRequest(request: Request) {
@@ -149,12 +234,12 @@ export async function POST(request: Request) {
     neighborhood,
     zip,
   );
-  if (cnefeMatch) {
+  if (cnefeMatch?.precision === 'exact') {
     return NextResponse.json({
       lat: cnefeMatch.lat,
       lng: cnefeMatch.lng,
-      quality: cnefeMatch.precision === 'exact' ? 'exata' : 'aproximada',
-      locationType: cnefeMatch.precision === 'exact' ? 'IBGE_CNEFE' : 'IBGE_CNEFE_INTERPOLATED',
+      quality: 'exata',
+      locationType: 'IBGE_CNEFE',
       source: 'IBGE_CNEFE',
       partialMatch: false,
       checks: { number: true, street: true, city: true, state: true, zip: true },
@@ -163,10 +248,161 @@ export async function POST(request: Request) {
     }, { headers: { 'Cache-Control': 'no-store' } });
   }
 
-  const apiKey = process.env.GOOGLE_MAPS_GEOCODING_KEY;
-  if (!apiKey) {
+  const addressValidationKey = process.env.GOOGLE_MAPS_ADDRESS_VALIDATION_KEY
+    || process.env.GOOGLE_MAPS_GEOCODING_KEY;
+  const geocodingKey = process.env.GOOGLE_MAPS_GEOCODING_KEY;
+  const approximateCnefeSuggestion = cnefeMatch
+    ? {
+        lat: cnefeMatch.lat,
+        lng: cnefeMatch.lng,
+        source: 'IBGE_CNEFE_INTERPOLATED',
+        formattedAddress: `${cnefeMatch.matchedAddress}, ${municipality.name} - ${state}, Brasil`,
+      }
+    : undefined;
+
+  if (!addressValidationKey && !geocodingKey) {
+    if (approximateCnefeSuggestion) {
+      return reviewResponse(
+        'insufficient_precision',
+        'O IBGE encontrou apenas uma posição interpolada. Confirme o ponto no mapa.',
+        approximateCnefeSuggestion,
+      );
+    }
     return NextResponse.json(
-      { code: 'geocoder_not_configured', message: 'O endereço não está na base do IBGE e o Google Maps ainda não foi configurado.' },
+      { code: 'geocoder_not_configured', message: 'O endereço não está na base do IBGE e a validação do Google ainda não foi configurada.' },
+      { status: 503, headers: { 'Cache-Control': 'no-store' } },
+    );
+  }
+
+  if (addressValidationKey) {
+    try {
+      const validationResponse = await fetch(
+        `https://addressvalidation.googleapis.com/v1:validateAddress?key=${encodeURIComponent(addressValidationKey)}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          cache: 'no-store',
+          body: JSON.stringify({
+            address: {
+              regionCode: 'BR',
+              administrativeArea: state,
+              locality: municipality.name,
+              ...(zip ? { postalCode: zip.replace(/\D/g, '') } : {}),
+              addressLines: [
+                `${street}, ${number}`,
+                neighborhood,
+              ].filter(Boolean),
+            },
+          }),
+        },
+      );
+
+      if (validationResponse.ok) {
+        const validation = await validationResponse.json() as AddressValidationResponse;
+        const verdict = validation.result?.verdict;
+        const validatedAddress = validation.result?.address;
+        const validatedGeocode = validation.result?.geocode;
+        const lat = validatedGeocode?.location?.latitude;
+        const lng = validatedGeocode?.location?.longitude;
+        const returnedNumber = validationComponent(validation, 'street_number')?.componentName?.text ?? '';
+        const returnedStreet = validationComponent(validation, 'route')?.componentName?.text ?? '';
+        const returnedCity = validatedAddress?.postalAddress?.locality
+          || validationComponent(validation, 'locality', 'postal_town', 'administrative_area_level_2')?.componentName?.text
+          || '';
+        const returnedState = validatedAddress?.postalAddress?.administrativeArea ?? '';
+        const returnedZip = validatedAddress?.postalAddress?.postalCode
+          || validationComponent(validation, 'postal_code')?.componentName?.text
+          || '';
+        const checks = {
+          number: exact(number, returnedNumber),
+          street: exactStreet(street, returnedStreet),
+          city: exact(municipality.name, returnedCity),
+          state: exactState(state, returnedState),
+          zip: exact(zip.replace(/\D/g, ''), returnedZip.replace(/\D/g, '')),
+        };
+        const hasCoordinates = typeof lat === 'number' && Number.isFinite(lat)
+          && typeof lng === 'number' && Number.isFinite(lng);
+        const missingComponents = validatedAddress?.missingComponentTypes ?? [];
+        const unconfirmedComponents = validatedAddress?.unconfirmedComponentTypes ?? [];
+        const unresolvedTokens = validatedAddress?.unresolvedTokens ?? [];
+        const premiseLevel = ['PREMISE', 'SUB_PREMISE'].includes(verdict?.geocodeGranularity ?? '');
+        const isConfirmedPremise = verdict?.addressComplete === true
+          && verdict?.hasUnconfirmedComponents !== true
+          && missingComponents.length === 0
+          && unconfirmedComponents.length === 0
+          && unresolvedTokens.length === 0
+          && premiseLevel
+          && Object.values(checks).every(Boolean)
+          && hasCoordinates;
+
+        if (isConfirmedPremise && typeof lat === 'number' && typeof lng === 'number') {
+          if (distanceKm({ lat: municipality.lat, lng: municipality.lng }, { lat, lng }) > 150) {
+            return reviewResponse(
+              'outside_active_city',
+              'As coordenadas validadas estão longe da cidade ativa.',
+            );
+          }
+          return NextResponse.json({
+            lat,
+            lng,
+            quality: 'exata',
+            locationType: `ADDRESS_VALIDATION_${verdict?.geocodeGranularity ?? 'UNKNOWN'}`,
+            source: 'GOOGLE_ADDRESS_VALIDATION',
+            partialMatch: false,
+            checks,
+            formattedAddress: validatedAddress?.formattedAddress ?? '',
+            placeId: validatedGeocode?.placeId ?? '',
+            validation: {
+              addressComplete: verdict?.addressComplete === true,
+              validationGranularity: verdict?.validationGranularity ?? '',
+              geocodeGranularity: verdict?.geocodeGranularity ?? '',
+              hasInferredComponents: verdict?.hasInferredComponents === true,
+              hasReplacedComponents: verdict?.hasReplacedComponents === true,
+            },
+          }, { headers: { 'Cache-Control': 'no-store' } });
+        }
+
+        const suggestion = hasCoordinates && typeof lat === 'number' && typeof lng === 'number'
+          ? {
+              lat,
+              lng,
+              source: 'GOOGLE_ADDRESS_VALIDATION',
+              formattedAddress: validatedAddress?.formattedAddress,
+            }
+          : approximateCnefeSuggestion;
+        const cityMatches = checks.city && checks.state;
+        return reviewResponse(
+          cityMatches ? 'address_requires_review' : 'outside_active_city',
+          cityMatches
+            ? 'O Google encontrou o endereço, mas não confirmou o imóvel e o número com segurança. Revise o ponto no mapa.'
+            : 'O Google não confirmou que o endereço pertence à cidade e UF selecionadas.',
+          suggestion,
+        );
+      }
+
+      // Chaves antigas podem ainda não ter a Address Validation API habilitada.
+      // Nessa situação mantemos o Geocoding como contingência, sem interromper a importação.
+      if (![400, 403, 404, 429].includes(validationResponse.status) && validationResponse.status < 500) {
+        return NextResponse.json(
+          { code: 'validation_failed', message: 'O Google não aceitou a validação do endereço.' },
+          { status: 502, headers: { 'Cache-Control': 'no-store' } },
+        );
+      }
+    } catch {
+      // Falha temporária: o fluxo abaixo usa o Geocoding somente como contingência.
+    }
+  }
+
+  if (!geocodingKey) {
+    if (approximateCnefeSuggestion) {
+      return reviewResponse(
+        'insufficient_precision',
+        'O IBGE encontrou apenas uma posição interpolada. Confirme o ponto no mapa.',
+        approximateCnefeSuggestion,
+      );
+    }
+    return NextResponse.json(
+      { code: 'geocoder_not_configured', message: 'A validação exata do endereço está temporariamente indisponível.' },
       { status: 503, headers: { 'Cache-Control': 'no-store' } },
     );
   }
@@ -183,7 +419,7 @@ export async function POST(request: Request) {
     'bounds',
     `${municipality.lat - 0.35},${municipality.lng - 0.35}|${municipality.lat + 0.35},${municipality.lng + 0.35}`,
   );
-  url.searchParams.set('key', apiKey);
+  url.searchParams.set('key', geocodingKey);
 
   try {
     const response = await fetch(url, { cache: 'no-store' });
@@ -227,23 +463,21 @@ export async function POST(request: Request) {
     const candidate = candidates.find(({ result, checks }) =>
       Object.values(checks).every(Boolean)
       && result.partial_match !== true
-      && ['ROOFTOP', 'RANGE_INTERPOLATED'].includes(result.geometry?.location_type ?? ''),
+      && result.geometry?.location_type === 'ROOFTOP',
     );
     if (!candidate) {
       const insideCity = candidates.some(({ checks }) => checks.city && checks.state);
       const addressMatchedWithoutPrecision = candidates.some(({ checks }) => Object.values(checks).every(Boolean));
-      return NextResponse.json(
-        {
-          code: addressMatchedWithoutPrecision
-            ? 'insufficient_precision'
-            : insideCity ? 'imprecise_address' : 'outside_active_city',
-          message: addressMatchedWithoutPrecision
-            ? 'O Google encontrou o endereço, mas sem precisão suficiente para marcar a residência.'
-            : insideCity
-              ? 'O Google não confirmou exatamente a rua e o número dentro da cidade ativa.'
-              : 'O resultado não pertence à cidade e UF selecionadas.',
-        },
-        { status: 422, headers: { 'Cache-Control': 'no-store' } },
+      return reviewResponse(
+        addressMatchedWithoutPrecision
+          ? 'insufficient_precision'
+          : insideCity ? 'imprecise_address' : 'outside_active_city',
+        addressMatchedWithoutPrecision
+          ? 'O Google encontrou o endereço, mas sem precisão de imóvel. Confirme o ponto no mapa.'
+          : insideCity
+            ? 'O Google não confirmou exatamente a rua e o número dentro da cidade ativa.'
+            : 'O resultado não pertence à cidade e UF selecionadas.',
+        approximateCnefeSuggestion,
       );
     }
 
@@ -261,13 +495,10 @@ export async function POST(request: Request) {
     }
 
     const locationType = result.geometry?.location_type ?? 'UNKNOWN';
-    const isRooftop = locationType === 'ROOFTOP'
-      && Object.values(checks).every(Boolean);
-
     return NextResponse.json({
       lat,
       lng,
-      quality: isRooftop ? 'exata' : 'aproximada',
+      quality: 'exata',
       locationType,
       source: 'GOOGLE',
       partialMatch: result.partial_match === true,
