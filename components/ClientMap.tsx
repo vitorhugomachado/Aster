@@ -40,6 +40,13 @@ function loadGoogleMaps(apiKey: string) {
   return googleMapsLibraryPromise;
 }
 
+function locationSignature(clients: Array<ClientRecord & { lat: number; lng: number }>) {
+  return clients
+    .map((client) => `${client.id}:${client.lat.toFixed(7)}:${client.lng.toFixed(7)}`)
+    .sort()
+    .join('|');
+}
+
 export function ClientMap({
   clients,
   cityProfile,
@@ -62,11 +69,15 @@ export function ClientMap({
   const googlePositionListenerRef = useRef<google.maps.MapsEventListener | null>(null);
   const googleCityKeyRef = useRef('');
   const googleSelectedRef = useRef<string | null>(null);
+  const googleSelectedLocationRef = useRef('');
+  const googleLocationsRef = useRef('');
   const leafletMapRef = useRef<LeafletMap | null>(null);
   const leafletLayerRef = useRef<LayerGroup | null>(null);
   const leafletRef = useRef<typeof import('leaflet') | null>(null);
   const leafletCityKeyRef = useRef('');
   const leafletSelectedRef = useRef<string | null>(null);
+  const leafletSelectedLocationRef = useRef('');
+  const leafletLocationsRef = useRef('');
   const leafletAnchorHandlerRef = useRef<(() => void) | null>(null);
   const leafletPositionHandlerRef = useRef<((event: import('leaflet').LeafletMouseEvent) => void) | null>(null);
   const holdTimerRef = useRef<number | null>(null);
@@ -285,6 +296,9 @@ export function ClientMap({
       (client): client is ClientRecord & { lat: number; lng: number } =>
         Number.isFinite(client.lat) && Number.isFinite(client.lng),
     );
+    const locationsKey = locationSignature(located);
+    const locationsChanged = locationsKey !== googleLocationsRef.current;
+    googleLocationsRef.current = locationsKey;
     const bounds = new google.maps.LatLngBounds();
 
     located.forEach((client) => {
@@ -348,7 +362,10 @@ export function ClientMap({
     });
 
     const selectedClient = located.find((client) => client.id === selectedId);
-    if (selectionChanged && selectedClient) {
+    const selectedLocationKey = selectedClient ? `${selectedClient.id}:${selectedClient.lat.toFixed(7)}:${selectedClient.lng.toFixed(7)}` : '';
+    const selectedLocationChanged = selectedLocationKey !== googleSelectedLocationRef.current;
+    googleSelectedLocationRef.current = selectedLocationKey;
+    if ((selectionChanged || selectedLocationChanged) && selectedClient) {
       map.panTo({ lat: selectedClient.lat, lng: selectedClient.lng });
       if ((map.getZoom() ?? 0) < 17) map.setZoom(17);
     } else if (cityChanged && cityProfile?.bounds) {
@@ -356,18 +373,18 @@ export function ClientMap({
     } else if (cityChanged && cityProfile?.center) {
       map.setCenter(cityProfile.center);
       map.setZoom(13);
-    } else if (located.length === 1) {
+    } else if (locationsChanged && located.length === 1) {
       map.setCenter(bounds.getCenter());
       map.setZoom(17);
-    } else if (located.length > 1) {
+    } else if (locationsChanged && located.length > 1) {
       map.fitBounds(bounds, 60);
       const listener = map.addListener('idle', () => {
         if ((map.getZoom() ?? 0) > 15) map.setZoom(15);
         listener.remove();
       });
-    } else if (cityProfile?.bounds) {
+    } else if (locationsChanged && cityProfile?.bounds) {
       map.fitBounds(cityProfile.bounds, 36);
-    } else if (cityProfile?.center) {
+    } else if (locationsChanged && cityProfile?.center) {
       map.setCenter(cityProfile.center);
       map.setZoom(13);
     }
@@ -406,6 +423,9 @@ export function ClientMap({
       (client): client is ClientRecord & { lat: number; lng: number } =>
         Number.isFinite(client.lat) && Number.isFinite(client.lng),
     );
+    const locationsKey = locationSignature(located);
+    const locationsChanged = locationsKey !== leafletLocationsRef.current;
+    leafletLocationsRef.current = locationsKey;
 
     located.forEach((client) => {
       const isSelected = client.id === selectedId;
@@ -465,7 +485,10 @@ export function ClientMap({
     });
 
     const selectedClient = located.find((client) => client.id === selectedId);
-    if (selectionChanged && selectedClient) {
+    const selectedLocationKey = selectedClient ? `${selectedClient.id}:${selectedClient.lat.toFixed(7)}:${selectedClient.lng.toFixed(7)}` : '';
+    const selectedLocationChanged = selectedLocationKey !== leafletSelectedLocationRef.current;
+    leafletSelectedLocationRef.current = selectedLocationKey;
+    if ((selectionChanged || selectedLocationChanged) && selectedClient) {
       map.flyTo([selectedClient.lat, selectedClient.lng], Math.max(map.getZoom(), 17), { duration: 0.45 });
     } else if (cityChanged && cityProfile?.bounds) {
       const cityBounds = L.latLngBounds(
@@ -477,21 +500,21 @@ export function ClientMap({
     } else if (cityChanged && cityProfile?.center) {
       map.setMaxBounds(L.latLngBounds([-90, -180], [90, 180]));
       map.setView([cityProfile.center.lat, cityProfile.center.lng], 13, { animate: false });
-    } else if (located.length === 1) {
+    } else if (locationsChanged && located.length === 1) {
       map.setView([located[0].lat, located[0].lng], 16, { animate: false });
-    } else if (located.length > 1) {
+    } else if (locationsChanged && located.length > 1) {
       map.fitBounds(
         L.latLngBounds(located.map((client) => [client.lat, client.lng])),
         { padding: [56, 56], maxZoom: 15, animate: false },
       );
-    } else if (cityProfile?.bounds) {
+    } else if (locationsChanged && cityProfile?.bounds) {
       const cityBounds = L.latLngBounds(
         [cityProfile.bounds.south, cityProfile.bounds.west],
         [cityProfile.bounds.north, cityProfile.bounds.east],
       );
       map.setMaxBounds(cityBounds.pad(0.1));
       map.fitBounds(cityBounds, { padding: [36, 36], animate: false });
-    } else if (cityProfile?.center) {
+    } else if (locationsChanged && cityProfile?.center) {
       map.setView([cityProfile.center.lat, cityProfile.center.lng], 13, { animate: false });
     }
     if (leafletPositionHandlerRef.current) map.off('click', leafletPositionHandlerRef.current);
