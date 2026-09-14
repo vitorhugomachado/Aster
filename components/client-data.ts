@@ -37,6 +37,10 @@ export interface ClientRecord {
   suggestedLng?: number;
   suggestedAddress?: string;
   suggestionSource?: string;
+  addressAdjustedByAi?: boolean;
+  originalStreet?: string;
+  originalNeighborhood?: string;
+  addressAiNote?: string;
   locationQuality: LocationQuality;
   source: 'demo' | 'importação' | 'manual';
   importBatchId?: string;

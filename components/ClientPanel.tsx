@@ -9,6 +9,7 @@ import {
   MapPinned,
   Pencil,
   Save,
+  Sparkles,
   UserRoundPlus,
   X,
 } from 'lucide-react';
@@ -152,6 +153,13 @@ export function ClientPanel({
                 <span>{[client.neighborhood, `${client.city}/${client.state}`].filter(Boolean).join(' · ')}</span>
               </p>
             </div>
+
+            {client.addressAdjustedByAi && (
+              <div className="client-ai-adjustment">
+                <Sparkles size={14} />
+                <span><b>Ortografia revisada pelo Gemini</b><small>{client.addressAiNote || 'Endereço corrigido e depois confirmado pelo geocodificador.'}</small></span>
+              </div>
+            )}
 
             <div className="client-quick-facts">
               <span><small>Plano</small><b>{shown(client.plan)}</b></span>

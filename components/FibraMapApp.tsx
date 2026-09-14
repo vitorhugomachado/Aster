@@ -32,6 +32,7 @@ import {
   Plus,
   RefreshCcw,
   Search,
+  Sparkles,
   ShieldCheck,
   SlidersHorizontal,
   Trash2,
@@ -40,6 +41,7 @@ import {
   X,
 } from 'lucide-react';
 import { ClientMap } from './ClientMap';
+import { AsterAssistant } from './AsterAssistant';
 import { ClientDraft, ClientPanel, ClientPanelMode } from './ClientPanel';
 import { RuralGroupDraft, RuralGroupsModal } from './RuralGroupsModal';
 import paranaMunicipalities from './pr-municipalities.json';
@@ -148,6 +150,10 @@ function recordFromParsed(row: ParsedClient): ClientRecord {
     suggestedLng: row.suggestedLng,
     suggestedAddress: row.suggestedAddress,
     suggestionSource: row.suggestionSource,
+    addressAdjustedByAi: row.addressAdjustedByAi,
+    originalStreet: row.originalStreet,
+    originalNeighborhood: row.originalNeighborhood,
+    addressAiNote: row.addressAiNote,
     locationQuality: row.locationQuality,
     source: row.source,
     importBatchId: row.importBatchId,
@@ -258,6 +264,7 @@ export function FibraMapApp() {
   const [clientEditorBusy, setClientEditorBusy] = useState(false);
   const [clientEditorError, setClientEditorError] = useState('');
   const [positionDraft, setPositionDraft] = useState<PositionDraft | null>(null);
+  const [assistantOpen, setAssistantOpen] = useState(false);
   const [clientBubbleAnchor, setClientBubbleAnchor] = useState<{ x: number; y: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -586,10 +593,11 @@ export function FibraMapApp() {
         setClientPanelMode(null);
         setSelectedId(null);
       }
+      if (event.key === 'Escape' && assistantOpen) setAssistantOpen(false);
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [cityOpen, clientPanelMode, importOpen, positionDraft, ruralGroupPositionDraft, ruralGroupsOpen, selectedRuralGroupId]);
+  }, [assistantOpen, cityOpen, clientPanelMode, importOpen, positionDraft, ruralGroupPositionDraft, ruralGroupsOpen, selectedRuralGroupId]);
 
   useEffect(() => {
     if (!toast) return;
@@ -1120,7 +1128,9 @@ export function FibraMapApp() {
       const resolvedRows = [...rows];
       const geocodeCache = new Map<string, Promise<Pick<
         ClientRecord,
-        'lat' | 'lng' | 'suggestedLat' | 'suggestedLng' | 'suggestedAddress' | 'suggestionSource' | 'pendingReason' | 'locationQuality'
+        'street' | 'neighborhood' | 'lat' | 'lng' | 'suggestedLat' | 'suggestedLng' | 'suggestedAddress'
+        | 'suggestionSource' | 'pendingReason' | 'locationQuality' | 'addressAdjustedByAi'
+        | 'originalStreet' | 'originalNeighborhood' | 'addressAiNote'
       >>>();
       setGeocodeProgress({ done: 0, total: indexesToLocate.length });
       for (let start = 0; start < indexesToLocate.length; start += 5) {
@@ -1136,6 +1146,8 @@ export function FibraMapApp() {
           let cachedLocation = geocodeCache.get(addressKey);
           if (!cachedLocation) {
             cachedLocation = geocode(row, importCityProfile.ibgeId).then((resolved) => ({
+              street: resolved.street,
+              neighborhood: resolved.neighborhood,
               lat: resolved.lat,
               lng: resolved.lng,
               suggestedLat: resolved.suggestedLat,
@@ -1144,6 +1156,10 @@ export function FibraMapApp() {
               suggestionSource: resolved.suggestionSource,
               pendingReason: resolved.pendingReason,
               locationQuality: resolved.locationQuality,
+              addressAdjustedByAi: resolved.addressAdjustedByAi,
+              originalStreet: resolved.originalStreet,
+              originalNeighborhood: resolved.originalNeighborhood,
+              addressAiNote: resolved.addressAiNote,
             }));
             geocodeCache.set(addressKey, cachedLocation);
           }
@@ -1182,55 +1198,106 @@ export function FibraMapApp() {
 
   async function geocode(row: ParsedClient, ibgeId = activeCityProfile?.ibgeId): Promise<ClientRecord> {
     const base = recordFromParsed(row);
-    try {
+    type GeocodeResult = {
+      lat?: number;
+      lng?: number;
+      quality?: 'exata' | 'aproximada';
+      code?: string;
+      message?: string;
+      suggestedLocation?: { lat?: number; lng?: number };
+      suggestedAddress?: string;
+      suggestionSource?: string;
+    };
+    const requestLocation = async (address: Pick<ParsedClient, 'street' | 'number' | 'neighborhood' | 'city' | 'state' | 'zip'>) => {
       const response = await fetch('/api/geocode', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          street: row.street,
-          number: row.number,
-          neighborhood: row.neighborhood,
-          city: row.city,
-          state: row.state,
-          zip: row.zip,
-          ibgeId,
-        }),
+        body: JSON.stringify({ ...address, ibgeId }),
       });
-      const result = await response.json().catch(() => ({})) as {
-        lat?: number;
-        lng?: number;
-        quality?: 'exata' | 'aproximada';
-        message?: string;
-        suggestedLocation?: { lat?: number; lng?: number };
-        suggestedAddress?: string;
-        suggestionSource?: string;
-      };
-      if (
-        !response.ok
-        || typeof result.lat !== 'number'
-        || typeof result.lng !== 'number'
-        || !result.quality
-      ) {
+      const result = await response.json().catch(() => ({})) as GeocodeResult;
+      return { response, result };
+    };
+    const hasExactLocation = (result: GeocodeResult) => typeof result.lat === 'number'
+      && typeof result.lng === 'number'
+      && Boolean(result.quality);
+
+    try {
+      const firstAttempt = await requestLocation(row);
+      if (firstAttempt.response.ok && hasExactLocation(firstAttempt.result)) {
         return {
           ...base,
-          pendingReason: result.message || 'Endereço não confirmado dentro da cidade ativa.',
-          suggestedLat: typeof result.suggestedLocation?.lat === 'number' ? result.suggestedLocation.lat : undefined,
-          suggestedLng: typeof result.suggestedLocation?.lng === 'number' ? result.suggestedLocation.lng : undefined,
-          suggestedAddress: result.suggestedAddress || undefined,
-          suggestionSource: result.suggestionSource || undefined,
-          locationQuality: 'pendente',
+          lat: firstAttempt.result.lat,
+          lng: firstAttempt.result.lng,
+          suggestedLat: undefined,
+          suggestedLng: undefined,
+          suggestedAddress: undefined,
+          suggestionSource: undefined,
+          pendingReason: undefined,
+          locationQuality: firstAttempt.result.quality!,
         };
       }
+
+      const canReviewSpelling = ([404, 422].includes(firstAttempt.response.status)
+        || (firstAttempt.response.status === 503 && firstAttempt.result.code === 'geocoder_not_configured'))
+        && firstAttempt.result.code !== 'invalid_city'
+        && firstAttempt.result.code !== 'outside_active_city';
+      if (canReviewSpelling) {
+        try {
+          const suggestionResponse = await fetch('/api/address-suggestion', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              street: row.street,
+              number: row.number,
+              neighborhood: row.neighborhood,
+              city: row.city,
+              state: row.state,
+              zip: row.zip,
+              ibgeId,
+            }),
+          });
+          const suggestion = await suggestionResponse.json().catch(() => ({})) as {
+            changed?: boolean;
+            confidence?: number;
+            reason?: string;
+            address?: Pick<ParsedClient, 'street' | 'number' | 'neighborhood' | 'city' | 'state' | 'zip'>;
+          };
+          if (suggestionResponse.ok && suggestion.changed && suggestion.address) {
+            const retry = await requestLocation(suggestion.address);
+            if (retry.response.ok && hasExactLocation(retry.result)) {
+              return {
+                ...base,
+                street: suggestion.address.street,
+                neighborhood: suggestion.address.neighborhood,
+                originalStreet: row.street,
+                originalNeighborhood: row.neighborhood,
+                addressAdjustedByAi: true,
+                addressAiNote: suggestion.reason || 'Ortografia ajustada pelo Gemini e localização confirmada pelo geocodificador.',
+                lat: retry.result.lat,
+                lng: retry.result.lng,
+                suggestedLat: undefined,
+                suggestedLng: undefined,
+                suggestedAddress: undefined,
+                suggestionSource: undefined,
+                pendingReason: undefined,
+                locationQuality: retry.result.quality!,
+              };
+            }
+          }
+        } catch {
+          // O geocodificador continua retornando a melhor resposta original se a revisão por IA estiver indisponível.
+        }
+      }
+
+      const result = firstAttempt.result;
       return {
         ...base,
-        lat: result.lat,
-        lng: result.lng,
-        suggestedLat: undefined,
-        suggestedLng: undefined,
-        suggestedAddress: undefined,
-        suggestionSource: undefined,
-        pendingReason: undefined,
-        locationQuality: result.quality,
+        pendingReason: result.message || 'Endereço não confirmado dentro da cidade ativa.',
+        suggestedLat: typeof result.suggestedLocation?.lat === 'number' ? result.suggestedLocation.lat : undefined,
+        suggestedLng: typeof result.suggestedLocation?.lng === 'number' ? result.suggestedLocation.lng : undefined,
+        suggestedAddress: result.suggestedAddress || undefined,
+        suggestionSource: result.suggestionSource || undefined,
+        locationQuality: 'pendente',
       };
     } catch {
       return {
@@ -1728,6 +1795,7 @@ export function FibraMapApp() {
         </label>
 
         <div className="top-actions">
+          <button className="assistant-trigger" onClick={() => setAssistantOpen(true)}><Sparkles size={15} />Aster IA</button>
           <Link className="design-system-link" href="/design-system">Sistema visual</Link>
           <span className="demo-badge">Dados neste dispositivo</span>
           <button className="icon-button" aria-label="Notificações"><Bell size={16} /></button>
@@ -1828,6 +1896,7 @@ export function FibraMapApp() {
               setCityOpen(true);
             }}
           ><Plus size={18} /></button>
+          <button className="mobile-assistant-trigger" onClick={() => setAssistantOpen(true)} aria-label="Abrir Aster IA"><Sparkles size={18} /></button>
         </div>
 
         {view === 'mapa' && (
@@ -1983,6 +2052,17 @@ export function FibraMapApp() {
                 <button className="primary-small" onClick={openNewClient}><Plus size={15} />Adicionar cliente</button>
               </div>
             </div>
+            <div className="client-list-toolbar" aria-label="Pesquisa e filtros da lista de clientes">
+              <label className="client-list-search">
+                <Search size={16} />
+                <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Pesquisar nome, ID, rua, bairro ou CEP" aria-label="Pesquisar na lista de clientes" />
+                {query && <button onClick={() => setQuery('')} aria-label="Limpar pesquisa"><X size={14} /></button>}
+              </label>
+              <label><span>Status</span><select value={status} onChange={(event) => setStatus(event.target.value as ClientStatus | 'Todos')}>{STATUS_OPTIONS.map((option) => <option key={option}>{option}</option>)}</select><ChevronDown size={13} /></label>
+              <label><span>Plano</span><select value={plan} onChange={(event) => setPlan(event.target.value)}><option>Todos</option>{plans.map((option) => <option key={option}>{option}</option>)}</select><ChevronDown size={13} /></label>
+              <label><span>Importação</span><select value={activeBatchId} onChange={(event) => setActiveBatchId(event.target.value)}><option value="all">Todas</option>{cityHistory.map((batch) => <option key={batch.id} value={batch.id}>{batch.name}</option>)}</select><ChevronDown size={13} /></label>
+              <button className="client-list-clear" onClick={() => { setQuery(''); setStatus('Todos'); setPlan('Todos'); setLocationFilter('Todos'); setActiveBatchId('all'); }}>Limpar filtros</button>
+            </div>
             <div className="list-scope-bar" aria-label="Filtrar por localização">
               {(['Todos', 'Mapeados', 'Revisar'] as LocationFilter[]).map((option) => (
                 <button key={option} className={locationFilter === option ? 'active' : ''} onClick={() => setLocationFilter(option)}>{option}</button>
@@ -1992,7 +2072,7 @@ export function FibraMapApp() {
             </div>
             <div className="table-wrap">
               <table>
-                <thead><tr><th>Cliente</th><th>Endereço</th><th>Contato</th><th>Plano</th><th>Status</th><th>Localização</th></tr></thead>
+                <thead><tr><th>Cliente</th><th>Endereço</th><th>Contato</th><th>Plano</th><th>Status</th><th>Localização</th><th>Ação</th></tr></thead>
                 <tbody>
                   {visibleClients.map((client) => (
                     <tr
@@ -2016,6 +2096,7 @@ export function FibraMapApp() {
                         : client.lat !== undefined && !client.importIssues?.length
                           ? <span className="mapped"><CheckCircle2 size={14} />Mapeado</span>
                           : <span className="unmapped" title={client.pendingReason}><Clock3 size={14} />{client.importIssues?.length ? 'Corrigir dados' : 'Realocalizar'}</span>}</td>
+                      <td><button className="table-relocate" onClick={(event) => { event.stopPropagation(); startPositioning(client.id, 'view'); }}><MapPinned size={14} />Realocar</button></td>
                     </tr>
                   ))}
                 </tbody>
@@ -2024,32 +2105,37 @@ export function FibraMapApp() {
             </div>
             <div className="mobile-client-list">
               {visibleClients.map((client) => (
-                <button
+                <article
                   className="mobile-client-card"
                   key={`card-${client.id}`}
-                  onPointerDown={() => beginReviewHold(client)}
-                  onPointerUp={clearReviewHold}
-                  onPointerLeave={clearReviewHold}
-                  onPointerCancel={clearReviewHold}
-                  onContextMenu={(event) => {
-                    if (client.lat === undefined || client.lng === undefined || client.importIssues?.length) event.preventDefault();
-                  }}
-                  onClick={() => openClientFromList(client)}
                 >
-                  <span className="mobile-client-card-top">
-                    <span className="mobile-client-avatar">{client.name.slice(0, 2).toUpperCase()}</span>
-                    <span className="mobile-client-name"><b>{client.name}</b><small>{client.externalId ?? client.id} · {client.plan}</small></span>
-                    <span className="mobile-card-status" style={{ color: STATUS_COLORS[client.status] }}><i style={{ background: STATUS_COLORS[client.status] }} />{client.status}</span>
-                  </span>
-                  <span className="mobile-client-address"><MapPin size={15} />{client.street ? `${client.street}, ${client.number}` : 'Endereço não informado'}</span>
-                  <span className={(client.lat !== undefined && !client.importIssues?.length) || cityRuralGroupByClientId.has(client.id) ? 'mobile-location-ready' : 'mobile-location-pending'}>
-                    {cityRuralGroupByClientId.get(client.id)
-                      ? <><UsersRound size={14} />{cityRuralGroupByClientId.get(client.id)?.name}</>
-                      : client.lat !== undefined && !client.importIssues?.length
-                        ? <><CheckCircle2 size={14} />Localizado no mapa</>
-                        : <><Clock3 size={14} />{client.importIssues?.length ? client.importIssues.join(' · ') : 'Requer realocalização'}</>}
-                  </span>
-                </button>
+                  <button
+                    className="mobile-client-card-main"
+                    onPointerDown={() => beginReviewHold(client)}
+                    onPointerUp={clearReviewHold}
+                    onPointerLeave={clearReviewHold}
+                    onPointerCancel={clearReviewHold}
+                    onContextMenu={(event) => {
+                      if (client.lat === undefined || client.lng === undefined || client.importIssues?.length) event.preventDefault();
+                    }}
+                    onClick={() => openClientFromList(client)}
+                  >
+                    <span className="mobile-client-card-top">
+                      <span className="mobile-client-avatar">{client.name.slice(0, 2).toUpperCase()}</span>
+                      <span className="mobile-client-name"><b>{client.name}</b><small>{client.externalId ?? client.id} · {client.plan}</small></span>
+                      <span className="mobile-card-status" style={{ color: STATUS_COLORS[client.status] }}><i style={{ background: STATUS_COLORS[client.status] }} />{client.status}</span>
+                    </span>
+                    <span className="mobile-client-address"><MapPin size={15} />{client.street ? `${client.street}, ${client.number}` : 'Endereço não informado'}</span>
+                    <span className={(client.lat !== undefined && !client.importIssues?.length) || cityRuralGroupByClientId.has(client.id) ? 'mobile-location-ready' : 'mobile-location-pending'}>
+                      {cityRuralGroupByClientId.get(client.id)
+                        ? <><UsersRound size={14} />{cityRuralGroupByClientId.get(client.id)?.name}</>
+                        : client.lat !== undefined && !client.importIssues?.length
+                          ? <><CheckCircle2 size={14} />Localizado no mapa</>
+                          : <><Clock3 size={14} />{client.importIssues?.length ? client.importIssues.join(' · ') : 'Requer realocalização'}</>}
+                    </span>
+                  </button>
+                  <button className="mobile-relocate-button" onClick={() => startPositioning(client.id, 'view')}><MapPinned size={15} />Realocar no mapa</button>
+                </article>
               ))}
               {!visibleClients.length && <div className="mobile-empty-list">Nenhum cliente corresponde aos filtros.</div>}
             </div>
@@ -2129,6 +2215,15 @@ export function FibraMapApp() {
         />
       )}
 
+      <AsterAssistant
+        open={assistantOpen}
+        city={activeCityProfile}
+        clients={cityClients}
+        groups={cityRuralGroups}
+        imports={cityHistory}
+        onClose={() => setAssistantOpen(false)}
+      />
+
       {importOpen && (
         <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !importBusy) setImportOpen(false); }}>
           <section className="import-modal" role="dialog" aria-modal="true" aria-labelledby="import-title">
@@ -2189,7 +2284,7 @@ export function FibraMapApp() {
                         : row.needsGeocoding
                           ? <span className="row-pending">localizando automaticamente</span>
                           : row.lat !== undefined
-                            ? <span className="row-ready">coordenadas confirmadas</span>
+                            ? <span className="row-ready">{row.addressAdjustedByAi ? 'corrigido pelo Gemini · coordenadas confirmadas' : 'coordenadas confirmadas'}</span>
                             : <span className="row-incomplete">{row.pendingReason || 'endereço não confirmado'}</span>}
                       </td>
                     </tr>

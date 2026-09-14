@@ -35,6 +35,11 @@ export interface CnefeMatch {
   precision: 'exact' | 'interpolated';
 }
 
+export interface CnefeStreetCandidate {
+  street: string;
+  localities: string[];
+}
+
 const CNEFE_BASE_URL = 'https://ftp.ibge.gov.br/Cadastro_Nacional_de_Enderecos_para_Fins_Estatisticos/Censo_Demografico_2022/Arquivos_CNEFE/GeoJSON/Municipio_20240910';
 const MAX_ARCHIVE_BYTES = 10 * 1024 * 1024;
 const MAX_JSON_BYTES = 55 * 1024 * 1024;
@@ -218,6 +223,43 @@ async function getDataset(ibgeId: number) {
   const pending = downloadDataset(ibgeId).catch(() => null);
   datasetCache.set(ibgeId, pending);
   return pending;
+}
+
+export async function suggestCnefeStreets(
+  ibgeId: number,
+  street: string,
+  neighborhood = '',
+  limit = 10,
+): Promise<CnefeStreetCandidate[]> {
+  const records = await getDataset(ibgeId);
+  const requestedStreet = normalizeStreet(street);
+  if (!records?.length || !requestedStreet) return [];
+
+  const streets = new Map<string, { street: string; localities: Set<string> }>();
+  for (const record of records) {
+    const parsed = splitAddress(record.address);
+    if (!parsed) continue;
+    const key = normalizeStreet(parsed.street);
+    if (!key) continue;
+    const current = streets.get(key) ?? { street: parsed.street, localities: new Set<string>() };
+    if (record.locality) current.localities.add(record.locality);
+    streets.set(key, current);
+  }
+
+  const requestedNeighborhood = normalize(neighborhood);
+  return [...streets.entries()]
+    .map(([key, value]) => {
+      const distance = editDistance(requestedStreet, key);
+      const longest = Math.max(requestedStreet.length, key.length);
+      const similarity = longest ? 1 - distance / longest : 0;
+      const neighborhoodMatch = requestedNeighborhood
+        && [...value.localities].some((locality) => normalize(locality) === requestedNeighborhood);
+      return { value, similarity: similarity + (neighborhoodMatch ? 0.08 : 0) };
+    })
+    .filter((item) => item.similarity >= 0.45)
+    .sort((left, right) => right.similarity - left.similarity)
+    .slice(0, Math.max(1, Math.min(limit, 15)))
+    .map(({ value }) => ({ street: value.street, localities: [...value.localities].slice(0, 4) }));
 }
 
 export async function lookupCnefeAddress(
