@@ -4,7 +4,7 @@ import { importLibrary, setOptions } from '@googlemaps/js-api-loader';
 import { LocateFixed, Minus, Plus } from 'lucide-react';
 import { KeyboardEvent as ReactKeyboardEvent, useCallback, useEffect, useRef, useState } from 'react';
 import type { LayerGroup, Map as LeafletMap } from 'leaflet';
-import { CityProfile, ClientRecord, STATUS_COLORS } from './client-data';
+import { CityProfile, ClientRecord } from './client-data';
 
 interface ClientMapProps {
   clients: ClientRecord[];
@@ -48,7 +48,7 @@ export function ClientMap({
   const frameRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const googleMapRef = useRef<google.maps.Map | null>(null);
-  const googleOverlaysRef = useRef<Array<google.maps.Circle | google.maps.Polygon | google.maps.Marker>>([]);
+  const googleOverlaysRef = useRef<Array<google.maps.Polygon | google.maps.Marker>>([]);
   const googleAnchorOverlayRef = useRef<google.maps.OverlayView | null>(null);
   const googlePositionListenerRef = useRef<google.maps.MapsEventListener | null>(null);
   const googleCityKeyRef = useRef('');
@@ -227,24 +227,8 @@ export function ClientMap({
 
     located.forEach((client) => {
       const center = { lat: client.lat, lng: client.lng };
-      const color = STATUS_COLORS[client.status];
       const isSelected = client.id === selectedId;
       const isPositioning = client.id === positioningId;
-
-      if (client.locationQuality === 'aproximada') {
-        const halo = new google.maps.Circle({
-          map,
-          center,
-          radius: 70,
-          clickable: false,
-          strokeColor: color,
-          strokeOpacity: 0.45,
-          strokeWeight: 1,
-          fillColor: color,
-          fillOpacity: 0.08,
-        });
-        googleOverlaysRef.current.push(halo);
-      }
 
       const markerSize = isSelected ? 24 : 18;
       const marker = new google.maps.Marker({
@@ -331,7 +315,6 @@ export function ClientMap({
     );
 
     located.forEach((client) => {
-      const color = STATUS_COLORS[client.status];
       const isSelected = client.id === selectedId;
       const isPositioning = client.id === positioningId;
       const markerSize = isSelected ? 24 : 18;
@@ -367,18 +350,6 @@ export function ClientMap({
         onSelect(client.id);
       });
       marker.addTo(layer);
-
-      if (client.locationQuality === 'aproximada') {
-        L.circle([client.lat, client.lng], {
-          radius: 70,
-          color,
-          weight: 1,
-          dashArray: '4 4',
-          fillColor: color,
-          fillOpacity: 0.08,
-          interactive: false,
-        }).addTo(layer);
-      }
     });
 
     const selectedClient = located.find((client) => client.id === selectedId);

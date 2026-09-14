@@ -62,10 +62,6 @@ function shown(value?: string) {
   return value?.trim() || 'Não informado';
 }
 
-function Detail({ label, value }: { label: string; value?: string }) {
-  return <div className="client-detail"><dt>{label}</dt><dd>{shown(value)}</dd></div>;
-}
-
 function Field({
   label,
   field,
@@ -138,54 +134,41 @@ export function ClientPanel({
 
       {!editing && client ? (
         <>
-          <div className={`location-banner ${locationReady ? 'location-ready' : 'location-pending'}`}>
-            {locationReady ? <CheckCircle2 size={17} /> : <Clock3 size={17} />}
-            <div>
-              <b>{locationReady ? 'Cliente localizado' : 'Localização pendente'}</b>
-              <span>{locationReady
-                ? `${client.locationQuality === 'aproximada' ? 'Posição aproximada' : 'Posição confirmada'} no mapa`
-                : client.pendingReason || 'Revise o endereço ou informe as coordenadas.'}</span>
+          <div className="client-quick-body">
+            <div className="client-quick-state">
+              <span className="quick-status" style={{ color: STATUS_COLORS[client.status] }}>
+                <i style={{ background: STATUS_COLORS[client.status] }} />{client.status}
+              </span>
+              <span className={locationReady ? 'quick-location-ready' : 'quick-location-pending'}>
+                {locationReady ? <CheckCircle2 size={13} /> : <Clock3 size={13} />}
+                {locationReady ? 'No mapa' : 'Revisar localização'}
+              </span>
             </div>
+
+            <div className="client-quick-address">
+              <MapPin size={17} />
+              <p>
+                <b>{shown(client.street)}, {shown(client.number)}</b>
+                <span>{[client.neighborhood, `${client.city}/${client.state}`].filter(Boolean).join(' · ')}</span>
+              </p>
+            </div>
+
+            <div className="client-quick-facts">
+              <span><small>Plano</small><b>{shown(client.plan)}</b></span>
+              <span><small>Contato</small><b>{shown(client.phone || client.email)}</b></span>
+              <span><small>Contrato</small><b>{shown(client.contract)}</b></span>
+            </div>
+
+            {client.importIssues?.length ? (
+              <button className="client-quick-warning" onClick={onEdit}>
+                <AlertTriangle size={14} /><span><b>Corrigir dados importados</b><small>{client.importIssues.join(' · ')}</small></span>
+              </button>
+            ) : null}
           </div>
 
-          {client.importIssues?.length ? (
-            <div className="client-import-issues">
-              <AlertTriangle size={17} />
-              <div><b>Dados da importação precisam de correção</b><span>{client.importIssues.join(' · ')}</span></div>
-              <button onClick={onEdit}>Corrigir</button>
-            </div>
-          ) : null}
-
-          <section className="client-panel-section">
-            <div className="section-caption">Endereço</div>
-            <div className="address-feature"><MapPin size={18} /><p><b>{shown(client.street)}, {shown(client.number)}</b><span>{[client.complement, client.neighborhood, `${client.city}/${client.state}`, client.zip].filter(Boolean).join(' · ')}</span></p></div>
-          </section>
-
-          <section className="client-panel-section">
-            <div className="section-caption">Comercial</div>
-            <dl className="client-detail-grid">
-              <Detail label="Plano" value={client.plan} />
-              <div className="client-detail"><dt>Status</dt><dd style={{ color: STATUS_COLORS[client.status] }}>● {client.status}</dd></div>
-              <Detail label="Contrato" value={client.contract} />
-              <Detail label="Tipo" value={client.customerType} />
-              <Detail label="Cadastro" value={client.registeredAt} />
-              <Detail label="Origem" value={client.source === 'manual' ? 'Cadastro manual' : client.source === 'demo' ? 'Exemplo' : `Planilha${client.importRowNumber ? ` · linha ${client.importRowNumber}` : ''}`} />
-            </dl>
-          </section>
-
-          <section className="client-panel-section">
-            <div className="section-caption">Contato e identificação</div>
-            <dl className="client-detail-grid">
-              <Detail label="Telefone" value={client.phone} />
-              <Detail label="E-mail" value={client.email} />
-              <Detail label="Documento" value={client.document} />
-              <Detail label="CEP" value={client.zip} />
-            </dl>
-          </section>
-
           <footer className="client-panel-actions">
-            <button className="panel-secondary" onClick={onRelocate} disabled={busy}><LocateFixed size={16} />{busy ? 'Localizando…' : 'Localizar novamente'}</button>
-            <button className="panel-primary" onClick={onEdit} disabled={busy}><Pencil size={16} />Editar cliente</button>
+            <button className="panel-secondary" onClick={onRelocate} disabled={busy}><LocateFixed size={16} />{busy ? 'Localizando…' : 'Relocalizar'}</button>
+            <button className="panel-primary" onClick={onEdit} disabled={busy}><Pencil size={16} />Editar</button>
           </footer>
         </>
       ) : (
