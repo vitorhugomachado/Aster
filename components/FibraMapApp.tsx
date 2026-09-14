@@ -36,6 +36,7 @@ import {
   X,
 } from 'lucide-react';
 import { ClientMap } from './ClientMap';
+import { ClientDraft, ClientPanel, ClientPanelMode } from './ClientPanel';
 import paranaMunicipalities from './pr-municipalities.json';
 import {
   CityProfile,
@@ -109,22 +110,16 @@ function recordFromParsed(row: ParsedClient): ClientRecord {
     plan: row.plan,
     registeredAt: row.registeredAt,
     customerType: row.customerType,
+    phone: row.phone,
+    email: row.email,
+    document: row.document,
+    contract: row.contract,
     pendingReason: row.pendingReason,
     lat: row.lat,
     lng: row.lng,
     locationQuality: row.locationQuality,
     source: row.source,
   };
-}
-
-function initials(name: string) {
-  return name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0])
-    .join('')
-    .toUpperCase() || 'CL';
 }
 
 function generatedClientId(name: string, street: string, number: string, city: string) {
@@ -135,6 +130,54 @@ function generatedClientId(name: string, street: string, number: string, city: s
     hash = Math.imul(hash, 16777619);
   }
   return `AUTO-${(hash >>> 0).toString(36).toUpperCase()}`;
+}
+
+function blankClientDraft(profile: CityProfile | null): ClientDraft {
+  return {
+    id: '',
+    name: '',
+    street: '',
+    number: '',
+    complement: '',
+    neighborhood: '',
+    city: profile?.name ?? '',
+    state: profile?.state ?? PARANA_STATE,
+    zip: '',
+    status: 'Ativo',
+    plan: '',
+    registeredAt: '',
+    customerType: '',
+    phone: '',
+    email: '',
+    document: '',
+    contract: '',
+    lat: '',
+    lng: '',
+  };
+}
+
+function draftFromClient(client: ClientRecord): ClientDraft {
+  return {
+    id: client.id,
+    name: client.name,
+    street: client.street,
+    number: client.number,
+    complement: client.complement,
+    neighborhood: client.neighborhood,
+    city: client.city,
+    state: client.state,
+    zip: client.zip,
+    status: client.status,
+    plan: client.plan,
+    registeredAt: client.registeredAt ?? '',
+    customerType: client.customerType ?? '',
+    phone: client.phone ?? '',
+    email: client.email ?? '',
+    document: client.document ?? '',
+    contract: client.contract ?? '',
+    lat: client.lat?.toString() ?? '',
+    lng: client.lng?.toString() ?? '',
+  };
 }
 
 export function FibraMapApp() {
@@ -165,6 +208,10 @@ export function FibraMapApp() {
   const [history, setHistory] = useState<ImportBatch[]>([]);
   const [storageReady, setStorageReady] = useState(false);
   const [toast, setToast] = useState('');
+  const [clientPanelMode, setClientPanelMode] = useState<ClientPanelMode | null>('view');
+  const [clientDraft, setClientDraft] = useState<ClientDraft>(() => blankClientDraft(DEFAULT_CITY_PROFILE));
+  const [clientEditorBusy, setClientEditorBusy] = useState(false);
+  const [clientEditorError, setClientEditorError] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const newCityState = PARANA_STATE;
@@ -222,7 +269,7 @@ export function FibraMapApp() {
     });
   }, [cityClients, plan, query, status]);
 
-  const selected = visibleClients.find((client) => client.id === selectedId) ?? null;
+  const selected = cityClients.find((client) => client.id === selectedId) ?? null;
   const locatedCount = cityClients.filter((client) => client.lat !== undefined && client.lng !== undefined).length;
   const pendingCount = cityClients.length - locatedCount;
 
@@ -233,7 +280,11 @@ export function FibraMapApp() {
     }, {});
   }, [cityClients]);
 
-  const handleMapSelect = useCallback((id: string) => setSelectedId(id), []);
+  const handleMapSelect = useCallback((id: string) => {
+    setSelectedId(id);
+    setClientPanelMode('view');
+    setClientEditorError('');
+  }, []);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -243,10 +294,14 @@ export function FibraMapApp() {
       }
       if (event.key === 'Escape' && importOpen) setImportOpen(false);
       if (event.key === 'Escape' && cityOpen) setCityOpen(false);
+      if (event.key === 'Escape' && clientPanelMode) {
+        setClientPanelMode(null);
+        setSelectedId(null);
+      }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [cityOpen, importOpen]);
+  }, [cityOpen, clientPanelMode, importOpen]);
 
   useEffect(() => {
     if (!toast) return;
@@ -559,6 +614,10 @@ export function FibraMapApp() {
           plan: get('plan') || 'Não informado',
           registeredAt: get('registeredAt') || undefined,
           customerType: get('customerType') || undefined,
+          phone: get('phone') || undefined,
+          email: get('email') || undefined,
+          document: get('document') || undefined,
+          contract: get('contract') || undefined,
           pendingReason: !hasCoordinates && hasRequiredAddress && !canGeocode
             ? 'Informe cidade e UF para localizar o endereço'
             : undefined,
@@ -669,6 +728,203 @@ export function FibraMapApp() {
     }
   }
 
+  function updateClientDraft(field: keyof ClientDraft, value: string) {
+    setClientEditorError('');
+    setClientDraft((current) => {
+      if (field === 'city') {
+        const profile = cityProfiles.find((item) => item.name === value);
+        return { ...current, city: value, state: profile?.state ?? current.state };
+      }
+      return { ...current, [field]: value } as ClientDraft;
+    });
+  }
+
+  function openNewClient() {
+    if (!activeCityProfile) {
+      setCityOpen(true);
+      return;
+    }
+    setClientDraft(blankClientDraft(activeCityProfile));
+    setClientEditorError('');
+    setSelectedId(null);
+    setClientPanelMode('create');
+    setView('mapa');
+  }
+
+  function openClientEditor() {
+    if (!selected) return;
+    setClientDraft(draftFromClient(selected));
+    setClientEditorError('');
+    setClientPanelMode('edit');
+  }
+
+  function closeClientPanel() {
+    setClientPanelMode(null);
+    setSelectedId(null);
+    setClientEditorError('');
+  }
+
+  function cancelClientEditor() {
+    setClientEditorError('');
+    setClientPanelMode(selected ? 'view' : null);
+  }
+
+  async function saveClient() {
+    const name = normalizeText(clientDraft.name);
+    const street = normalizeText(clientDraft.street);
+    const number = normalizeText(clientDraft.number);
+    const numberKey = normalizeKey(number);
+    if (!name || !street || !number || ['s_n', 'sn', 'sem_numero', '0'].includes(numberKey)) {
+      setClientEditorError('Informe nome, logradouro e um número real do imóvel.');
+      return;
+    }
+
+    const profile = cityProfiles.find((item) => normalizeKey(item.name) === normalizeKey(clientDraft.city));
+    if (!profile?.ibgeId) {
+      setClientEditorError('Selecione uma cidade validada antes de salvar.');
+      return;
+    }
+
+    const id = normalizeText(clientDraft.id) || generatedClientId(name, street, number, profile.name);
+    const original = clientPanelMode === 'edit' ? selected : null;
+    const duplicate = clients.some((client) =>
+      normalizeKey(client.id) === normalizeKey(id) && client.id !== original?.id,
+    );
+    if (duplicate) {
+      setClientEditorError('Já existe um cliente com esse código/ID.');
+      return;
+    }
+
+    const latText = normalizeText(clientDraft.lat).replace(',', '.');
+    const lngText = normalizeText(clientDraft.lng).replace(',', '.');
+    const hasAnyCoordinate = Boolean(latText || lngText);
+    const lat = asNumber(latText);
+    const lng = asNumber(lngText);
+    const hasValidCoordinates = lat !== undefined && lng !== undefined
+      && Math.abs(lat) <= 90 && Math.abs(lng) <= 180;
+    if (hasAnyCoordinate && !hasValidCoordinates) {
+      setClientEditorError('Preencha latitude e longitude válidas, ou deixe as duas vazias.');
+      return;
+    }
+    if (hasValidCoordinates && profile.bounds && (
+      lat > profile.bounds.north || lat < profile.bounds.south
+      || lng > profile.bounds.east || lng < profile.bounds.west
+    )) {
+      setClientEditorError(`As coordenadas estão fora dos limites de ${profile.name}/${profile.state}.`);
+      return;
+    }
+
+    setClientEditorBusy(true);
+    setClientEditorError('');
+    const source = original && original.source !== 'demo' ? original.source : 'manual';
+    const base: ParsedClient = {
+      id,
+      name,
+      street,
+      number,
+      complement: normalizeText(clientDraft.complement),
+      neighborhood: normalizeText(clientDraft.neighborhood),
+      city: profile.name,
+      state: profile.state,
+      zip: normalizeText(clientDraft.zip),
+      status: clientDraft.status,
+      plan: normalizeText(clientDraft.plan) || 'Não informado',
+      registeredAt: normalizeText(clientDraft.registeredAt) || undefined,
+      customerType: normalizeText(clientDraft.customerType) || undefined,
+      phone: normalizeText(clientDraft.phone) || undefined,
+      email: normalizeText(clientDraft.email) || undefined,
+      document: normalizeText(clientDraft.document) || undefined,
+      contract: normalizeText(clientDraft.contract) || undefined,
+      locationQuality: 'pendente',
+      source,
+      rowNumber: 0,
+      issues: [],
+      needsGeocoding: true,
+    };
+
+    const addressChanged = Boolean(original) && normalizeKey([
+      original?.street,
+      original?.number,
+      original?.neighborhood,
+      original?.zip,
+      original?.city,
+      original?.state,
+    ].join('|')) !== normalizeKey([
+      base.street,
+      base.number,
+      base.neighborhood,
+      base.zip,
+      base.city,
+      base.state,
+    ].join('|'));
+    const coordinatesChanged = hasValidCoordinates && (
+      original?.lat !== lat || original?.lng !== lng
+    );
+
+    let resolved: ClientRecord;
+    if (hasValidCoordinates && (!addressChanged || coordinatesChanged || !original)) {
+      resolved = {
+        ...recordFromParsed(base),
+        lat,
+        lng,
+        locationQuality: coordinatesChanged || !original ? 'informada' : original.locationQuality,
+        pendingReason: undefined,
+      };
+    } else if (original?.lat !== undefined && original.lng !== undefined && !addressChanged) {
+      resolved = {
+        ...recordFromParsed(base),
+        lat: original.lat,
+        lng: original.lng,
+        locationQuality: original.locationQuality,
+        pendingReason: original.pendingReason,
+      };
+    } else {
+      resolved = await geocode(base, profile.ibgeId);
+    }
+
+    setClients((current) => {
+      if (original) return current.map((client) => client.id === original.id ? resolved : client);
+      const baseClients = current.every((client) => client.source === 'demo') ? [] : current;
+      return [...baseClients, resolved];
+    });
+    setCity(profile.name);
+    setStatus('Todos');
+    setPlan('Todos');
+    setSelectedId(resolved.id);
+    setClientPanelMode('view');
+    setClientEditorBusy(false);
+    setToast(resolved.lat !== undefined
+      ? `${resolved.name} foi salvo e localizado no mapa.`
+      : `${resolved.name} foi salvo. Revise o endereço ou informe as coordenadas.`);
+  }
+
+  async function relocateSelectedClient() {
+    if (!selected || !activeCityProfile?.ibgeId) return;
+    const numberKey = normalizeKey(selected.number);
+    if (!selected.street || !selected.number || ['s_n', 'sn', 'sem_numero', '0'].includes(numberKey)) {
+      setClientDraft(draftFromClient(selected));
+      setClientEditorError('Informe um logradouro e um número real para localizar este cliente.');
+      setClientPanelMode('edit');
+      return;
+    }
+    setClientEditorBusy(true);
+    const row: ParsedClient = {
+      ...selected,
+      lat: undefined,
+      lng: undefined,
+      locationQuality: 'pendente',
+      rowNumber: 0,
+      issues: [],
+      needsGeocoding: true,
+    };
+    const resolved = await geocode(row, activeCityProfile.ibgeId);
+    setClients((current) => current.map((client) => client.id === selected.id ? resolved : client));
+    setClientEditorBusy(false);
+    setToast(resolved.lat !== undefined
+      ? `${resolved.name} foi localizado novamente.`
+      : 'O endereço ainda não foi confirmado. Você pode editar ou informar coordenadas manuais.');
+  }
+
   async function confirmImport() {
     if (!importPreview) return;
     if (!activeCityProfile?.center) {
@@ -712,6 +968,7 @@ export function FibraMapApp() {
     setStatus('Todos');
     setPlan('Todos');
     setSelectedId(resolved.find((row) => row.lat !== undefined)?.id ?? null);
+    setClientPanelMode('view');
     setImportBusy(false);
     setImportOpen(false);
     setImportPreview(null);
@@ -730,6 +987,7 @@ export function FibraMapApp() {
     setPlan('Todos');
     setQuery('');
     setSelectedId('CLI-001');
+    setClientPanelMode('view');
     setView('mapa');
     setToast('Demonstração restaurada.');
   }
@@ -781,6 +1039,7 @@ export function FibraMapApp() {
               setSelectedId(null);
               setStatus('Todos');
               setPlan('Todos');
+              setClientPanelMode(null);
               setView('mapa');
             }}
           >
@@ -816,6 +1075,7 @@ export function FibraMapApp() {
           <div className="summary-row"><span><i className="dot pending-dot" />Sem localização</span><b>{pendingCount}</b></div>
         </section>
 
+        <button className="manual-button" onClick={openNewClient}><Plus size={16} />Adicionar cliente</button>
         <button className="import-button" onClick={openImporter}><Upload size={16} />Importar planilha</button>
         <button className="reset-button" onClick={resetDemo}><RefreshCcw size={13} />Restaurar demonstração</button>
       </aside>
@@ -840,6 +1100,7 @@ export function FibraMapApp() {
                 </select>
                 <ChevronDown size={13} />
               </label>
+              <button className="map-add-client" onClick={openNewClient}><Plus size={15} />Novo cliente</button>
             </div>
 
             <ClientMap
@@ -849,20 +1110,21 @@ export function FibraMapApp() {
               onSelect={handleMapSelect}
             />
 
-            {selected && selected.lat !== undefined && selected.lng !== undefined && (
-              <article className="client-popover">
-                <div className="popover-top">
-                  <span>{initials(selected.name)}</span>
-                  <div><b>{selected.name}</b><small>{selected.id} · {selected.source === 'demo' ? 'registro fictício' : 'importado'}</small></div>
-                  <button onClick={() => setSelectedId(null)} aria-label="Fechar detalhes"><X size={15} /></button>
-                </div>
-                <div className="popover-meta">
-                  <span>Plano atual<b>{selected.plan}</b></span>
-                  <span>Status<b style={{ color: STATUS_COLORS[selected.status] }}>● {selected.status}</b></span>
-                </div>
-                <div className="popover-address"><MapPin size={17} /><p>{selected.street}, {selected.number}{selected.complement ? ` · ${selected.complement}` : ''}<br /><small>{selected.neighborhood} · {selected.city}, {selected.state}</small></p></div>
-                <div className={`quality-tag quality-${selected.locationQuality}`}>{selected.locationQuality === 'aproximada' ? 'Localização aproximada — revisar' : 'Coordenada pronta para uso'}</div>
-              </article>
+            {clientPanelMode && (selected || clientPanelMode === 'create') && (
+              <ClientPanel
+                mode={clientPanelMode}
+                client={selected}
+                draft={clientDraft}
+                cities={cities}
+                busy={clientEditorBusy}
+                error={clientEditorError}
+                onChange={updateClientDraft}
+                onClose={closeClientPanel}
+                onEdit={openClientEditor}
+                onCancel={cancelClientEditor}
+                onSave={() => void saveClient()}
+                onRelocate={() => void relocateSelectedClient()}
+              />
             )}
 
             <div className="map-key">
@@ -871,22 +1133,27 @@ export function FibraMapApp() {
               <span><i className="dot alert-dot" />Atenção</span>
               <span><i className="dot inactive-dot" />Inativo</span>
             </div>
-            <div className="privacy-note"><ShieldCheck size={16} /><span><b>Dados protegidos no dispositivo</b> A base importada fica neste navegador. A localização consulta primeiro os endereços do IBGE; o Google é usado como complemento.</span></div>
           </>
         )}
 
         {view === 'lista' && (
           <section className="panel-view">
-            <div className="panel-heading"><div><span className="eyebrow">Base atual</span><h1>Lista de clientes</h1><p>{visibleClients.length} registros após os filtros.</p></div><button className="primary-small" onClick={openImporter}><Upload size={15} />Importar</button></div>
+            <div className="panel-heading">
+              <div><span className="eyebrow">Base atual</span><h1>Lista de clientes</h1><p>{visibleClients.length} registros após os filtros.</p></div>
+              <div className="panel-heading-actions">
+                <button className="secondary-small" onClick={openImporter}><Upload size={15} />Importar</button>
+                <button className="primary-small" onClick={openNewClient}><Plus size={15} />Adicionar cliente</button>
+              </div>
+            </div>
             <div className="table-wrap">
               <table>
-                <thead><tr><th>Cliente</th><th>Endereço</th><th>Bairro</th><th>Plano</th><th>Status</th><th>Localização</th></tr></thead>
+                <thead><tr><th>Cliente</th><th>Endereço</th><th>Contato</th><th>Plano</th><th>Status</th><th>Localização</th></tr></thead>
                 <tbody>
                   {visibleClients.map((client) => (
-                    <tr key={client.id} onClick={() => { setSelectedId(client.id); setView('mapa'); }}>
+                    <tr key={client.id} onClick={() => { handleMapSelect(client.id); setView('mapa'); }}>
                       <td><b>{client.name}</b><small>{client.id}</small></td>
                       <td>{client.street ? `${client.street}, ${client.number}` : 'Não informado'}</td>
-                      <td>{client.neighborhood || '—'}</td>
+                      <td>{client.phone || client.email || '—'}</td>
                       <td>{client.plan}</td>
                       <td><span className="status-pill" style={{ color: STATUS_COLORS[client.status] }}><i style={{ background: STATUS_COLORS[client.status] }} />{client.status}</span></td>
                       <td>{client.lat !== undefined ? <span className="mapped"><CheckCircle2 size={14} />Mapeado</span> : <span className="unmapped" title={client.pendingReason}><Clock3 size={14} />Revisar</span>}</td>
@@ -901,7 +1168,13 @@ export function FibraMapApp() {
 
         {view === 'importacoes' && (
           <section className="panel-view">
-            <div className="panel-heading"><div><span className="eyebrow">Controle de qualidade</span><h1>Importações</h1><p>Acompanhe arquivos, registros mapeados e linhas que precisam de revisão.</p></div><button className="primary-small" onClick={openImporter}><FileUp size={15} />Nova importação</button></div>
+            <div className="panel-heading">
+              <div><span className="eyebrow">Controle de qualidade</span><h1>Importações</h1><p>Acompanhe arquivos, registros mapeados e linhas que precisam de revisão.</p></div>
+              <div className="panel-heading-actions">
+                <button className="secondary-small" onClick={openNewClient}><Plus size={15} />Cadastro manual</button>
+                <button className="primary-small" onClick={openImporter}><FileUp size={15} />Nova importação</button>
+              </div>
+            </div>
             <div className="metric-grid">
               <div><MapPinned size={18} /><span>Mapeados</span><b>{locatedCount}</b></div>
               <div><Clock3 size={18} /><span>Sem localização</span><b>{pendingCount}</b></div>
@@ -965,7 +1238,7 @@ export function FibraMapApp() {
                       <label><span>UF</span><input value={importStateOverride} readOnly /></label>
                       <label><span>Status padrão</span><select value={importDefaultStatus} onChange={(event) => setImportDefaultStatus(event.target.value as ClientStatus)}>{STATUS_OPTIONS.filter((item) => item !== 'Todos').map((item) => <option key={item}>{item}</option>)}</select></label>
                     </div>
-                    <small>Código, contrato, bairro e demais campos são opcionais. Por privacidade, Documento, Email e Celular não são adicionados ao mapa.</small>
+                    <small>Código, contrato, bairro e demais campos são opcionais. Documento, e-mail e celular ficam no card do cliente e não são enviados ao geocodificador.</small>
                   </div>
                 )}
                 <div className="preview-metrics">

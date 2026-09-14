@@ -9,6 +9,10 @@ Mapa comercial para importar clientes de fibra por planilha e localizar cada end
 - Geocodificação automática: CNEFE/IBGE primeiro e Google Geocoding como complemento.
 - Validação estrita de cidade, UF, rua e número para evitar marcadores no município errado.
 - Diferenciação entre localização exata, aproximada e pendente.
+- Zoom no mapa por rolagem, pinça, botões ou `Ctrl +` / `Ctrl -`, com arraste livre.
+- Card completo ao selecionar um cliente, com edição de todos os dados operacionais.
+- Cadastro manual e nova tentativa de localização para registros pendentes.
+- Importação de telefone, e-mail, documento e contrato sem enviar esses dados ao geocodificador.
 - Dados da operação persistidos somente no navegador do usuário.
 - Design system documentado em `/design-system`.
 

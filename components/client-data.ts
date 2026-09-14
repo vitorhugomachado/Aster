@@ -25,11 +25,15 @@ export interface ClientRecord {
   plan: string;
   registeredAt?: string;
   customerType?: string;
+  phone?: string;
+  email?: string;
+  document?: string;
+  contract?: string;
   pendingReason?: string;
   lat?: number;
   lng?: number;
   locationQuality: LocationQuality;
-  source: 'demo' | 'importação';
+  source: 'demo' | 'importação' | 'manual';
 }
 
 export interface ParsedClient extends ClientRecord {
@@ -132,7 +136,7 @@ export function normalizeStatus(value: unknown): ClientStatus {
 }
 
 export const HEADER_ALIASES = {
-  id: ['cliente_id', 'id_cliente', 'codigo_cliente', 'codigo', 'id', 'contrato', 'numero_contrato', 'id_contrato'],
+  id: ['cliente_id', 'id_cliente', 'codigo_cliente', 'codigo', 'id'],
   name: ['nome', 'nome_cliente', 'cliente', 'razao_social'],
   street: ['logradouro', 'rua', 'endereco', 'endereco_completo'],
   number: ['numero', 'numero_endereco', 'n', 'nr'],
@@ -145,12 +149,16 @@ export const HEADER_ALIASES = {
   plan: ['plano', 'plano_atual', 'velocidade'],
   registeredAt: ['cadastro', 'data_cadastro', 'cadastrado_em'],
   customerType: ['tipo_cadastro', 'tipo_de_cadastro'],
+  phone: ['celular', 'telefone', 'telefone_celular', 'whatsapp', 'fone'],
+  email: ['email', 'e_mail'],
+  document: ['documento', 'cpf', 'cnpj', 'cpf_cnpj'],
+  contract: ['contrato', 'numero_contrato', 'id_contrato'],
   classification: ['classif', 'classificacao'],
   lat: ['latitude', 'lat'],
   lng: ['longitude', 'lng', 'lon', 'long'],
 } as const;
 
 export const TEMPLATE_CSV = [
-  'nome,logradouro,numero,cliente_id,complemento,bairro,cidade,uf,cep,status_cliente,plano,latitude,longitude',
-  'Cliente exemplo,Rua Exemplo,120,CLI-1001,,Centro,Guaporema,PR,,Ativo,600 Mega,,',
+  'nome,logradouro,numero,cliente_id,contrato,celular,email,documento,complemento,bairro,cidade,uf,cep,status_cliente,plano,latitude,longitude',
+  'Cliente exemplo,Rua Exemplo,120,CLI-1001,CT-1001,(44) 99999-9999,cliente@exemplo.com,000.000.000-00,,Centro,Guaporema,PR,,Ativo,600 Mega,,',
 ].join('\r\n');

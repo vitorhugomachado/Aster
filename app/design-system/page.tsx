@@ -119,6 +119,45 @@ export default function DesignSystemPage() {
             <div className="ds-data-row"><b>Cliente 002</b><span>Rua do Bosque, 415</span><span>Instalação</span></div>
           </div>
         </section>
+
+        <section className="ds-section">
+          <div className="ds-section-heading">
+            <span>08</span><h2>Mapa</h2>
+            <p>O mapa é a superfície principal. Controles flutuam com bordas discretas, e a seleção usa foco espacial.</p>
+          </div>
+          <div className="ds-canvas ds-map-pattern">
+            <div className="ds-map-grid" />
+            <span className="ds-map-marker marker-green" /><span className="ds-map-marker marker-orange" /><span className="ds-map-marker marker-red" />
+            <div className="ds-map-card"><small>Cliente selecionado</small><b>Av. São José, 214</b><span>Ativo · 600 Mega</span></div>
+            <div className="ds-map-controls"><button>+</button><button>−</button><button>◎</button></div>
+          </div>
+        </section>
+
+        <section className="ds-section">
+          <div className="ds-section-heading">
+            <span>09</span><h2>Interação</h2>
+            <p>Mouse, teclado e toque recebem a mesma prioridade. Toda ação crítica tem texto, foco e retorno visível.</p>
+          </div>
+          <div className="ds-canvas ds-rule-grid">
+            <article><b>Zoom</b><p>Roda do mouse, pinça, botões e Ctrl + / −.</p></article>
+            <article><b>Movimento</b><p>Clique e arraste sem exigir modo especial.</p></article>
+            <article><b>Seleção</b><p>O mapa aproxima o ponto e abre o card editável.</p></article>
+            <article><b>Erros</b><p>Nunca inventar coordenadas; orientar correção manual.</p></article>
+          </div>
+        </section>
+
+        <section className="ds-section">
+          <div className="ds-section-heading">
+            <span>10</span><h2>Princípios</h2>
+            <p>Regras que mantêm o produto consistente conforme novas telas e recursos forem adicionados.</p>
+          </div>
+          <div className="ds-canvas ds-principles">
+            <div><span>01</span><b>Mapa primeiro</b><p>Interface apoia a operação sem competir com o território.</p></div>
+            <div><span>02</span><b>Precisão explícita</b><p>Exato, aproximado e pendente nunca usam a mesma linguagem.</p></div>
+            <div><span>03</span><b>Menos decoração</b><p>Hierarquia vem de tipografia, espaço e contraste.</p></div>
+            <div><span>04</span><b>Ação reversível</b><p>Edição mostra contexto e mantém o cliente acessível.</p></div>
+          </div>
+        </section>
       </main>
     </div>
   );

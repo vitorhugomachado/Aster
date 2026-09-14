@@ -1,7 +1,8 @@
 'use client';
 
 import { importLibrary, setOptions } from '@googlemaps/js-api-loader';
-import { useEffect, useRef, useState } from 'react';
+import { LocateFixed, Minus, Plus } from 'lucide-react';
+import { KeyboardEvent as ReactKeyboardEvent, useEffect, useRef, useState } from 'react';
 import type { LayerGroup, Map as LeafletMap } from 'leaflet';
 import { CityProfile, ClientRecord, STATUS_COLORS } from './client-data';
 
@@ -31,14 +32,17 @@ function loadGoogleMaps(apiKey: string) {
 }
 
 export function ClientMap({ clients, cityProfile, selectedId, onSelect }: ClientMapProps) {
+  const frameRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const googleMapRef = useRef<google.maps.Map | null>(null);
   const googleOverlaysRef = useRef<Array<google.maps.Circle | google.maps.Polygon>>([]);
   const googleCityKeyRef = useRef('');
+  const googleSelectedRef = useRef<string | null>(null);
   const leafletMapRef = useRef<LeafletMap | null>(null);
   const leafletLayerRef = useRef<LayerGroup | null>(null);
   const leafletRef = useRef<typeof import('leaflet') | null>(null);
   const leafletCityKeyRef = useRef('');
+  const leafletSelectedRef = useRef<string | null>(null);
   const [provider, setProvider] = useState<MapProvider>('loading');
 
   useEffect(() => {
@@ -52,6 +56,11 @@ export function ClientMap({ clients, cityProfile, selectedId, onSelect }: Client
         zoomControl: false,
         attributionControl: true,
         preferCanvas: true,
+        dragging: true,
+        scrollWheelZoom: true,
+        doubleClickZoom: true,
+        touchZoom: true,
+        keyboard: true,
       }).setView([-23.3402, -52.7786], 13);
 
       L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -59,7 +68,6 @@ export function ClientMap({ clients, cityProfile, selectedId, onSelect }: Client
         attribution: '&copy; OpenStreetMap contributors',
       }).addTo(map);
 
-      L.control.zoom({ position: 'bottomright' }).addTo(map);
       leafletLayerRef.current = L.layerGroup().addTo(map);
       leafletRef.current = L;
       leafletMapRef.current = map;
@@ -101,6 +109,11 @@ export function ClientMap({ clients, cityProfile, selectedId, onSelect }: Client
           fullscreenControl: false,
           clickableIcons: false,
           gestureHandling: 'greedy',
+          draggable: true,
+          scrollwheel: true,
+          keyboardShortcuts: true,
+          disableDoubleClickZoom: false,
+          zoomControl: false,
           styles: [
             { featureType: 'poi', elementType: 'labels', stylers: [{ visibility: 'off' }] },
             { featureType: 'transit', elementType: 'labels', stylers: [{ visibility: 'off' }] },
@@ -137,6 +150,8 @@ export function ClientMap({ clients, cityProfile, selectedId, onSelect }: Client
     const cityKey = cityProfile ? `${cityProfile.state}-${cityProfile.ibgeId ?? cityProfile.name}` : '';
     const cityChanged = cityKey !== googleCityKeyRef.current;
     googleCityKeyRef.current = cityKey;
+    const selectionChanged = selectedId !== googleSelectedRef.current;
+    googleSelectedRef.current = selectedId;
 
     map.setOptions({
       restriction: cityProfile?.bounds
@@ -208,7 +223,11 @@ export function ClientMap({ clients, cityProfile, selectedId, onSelect }: Client
       bounds.extend(center);
     });
 
-    if (cityChanged && cityProfile?.bounds) {
+    const selectedClient = located.find((client) => client.id === selectedId);
+    if (selectionChanged && selectedClient) {
+      map.panTo({ lat: selectedClient.lat, lng: selectedClient.lng });
+      if ((map.getZoom() ?? 0) < 17) map.setZoom(17);
+    } else if (cityChanged && cityProfile?.bounds) {
       map.fitBounds(cityProfile.bounds, 36);
     } else if (cityChanged && cityProfile?.center) {
       map.setCenter(cityProfile.center);
@@ -238,6 +257,8 @@ export function ClientMap({ clients, cityProfile, selectedId, onSelect }: Client
     const cityKey = cityProfile ? `${cityProfile.state}-${cityProfile.ibgeId ?? cityProfile.name}` : '';
     const cityChanged = cityKey !== leafletCityKeyRef.current;
     leafletCityKeyRef.current = cityKey;
+    const selectionChanged = selectedId !== leafletSelectedRef.current;
+    leafletSelectedRef.current = selectedId;
 
     layer.clearLayers();
     const located = clients.filter(
@@ -277,7 +298,10 @@ export function ClientMap({ clients, cityProfile, selectedId, onSelect }: Client
       }
     });
 
-    if (cityChanged && cityProfile?.bounds) {
+    const selectedClient = located.find((client) => client.id === selectedId);
+    if (selectionChanged && selectedClient) {
+      map.flyTo([selectedClient.lat, selectedClient.lng], Math.max(map.getZoom(), 17), { duration: 0.45 });
+    } else if (cityChanged && cityProfile?.bounds) {
       const cityBounds = L.latLngBounds(
         [cityProfile.bounds.south, cityProfile.bounds.west],
         [cityProfile.bounds.north, cityProfile.bounds.east],
@@ -306,8 +330,67 @@ export function ClientMap({ clients, cityProfile, selectedId, onSelect }: Client
     }
   }, [cityProfile, clients, onSelect, provider, selectedId]);
 
+  function changeZoom(delta: number) {
+    frameRef.current?.focus({ preventScroll: true });
+    const googleMap = googleMapRef.current;
+    if (googleMap) {
+      const current = googleMap.getZoom() ?? 13;
+      googleMap.setZoom(Math.max(3, Math.min(21, current + delta)));
+      return;
+    }
+    const leafletMap = leafletMapRef.current;
+    if (leafletMap) leafletMap.setZoom(leafletMap.getZoom() + delta, { animate: true });
+  }
+
+  function resetMapView() {
+    frameRef.current?.focus({ preventScroll: true });
+    const googleMap = googleMapRef.current;
+    if (googleMap && cityProfile?.bounds) {
+      googleMap.fitBounds(cityProfile.bounds, 36);
+      return;
+    }
+    if (googleMap && cityProfile?.center) {
+      googleMap.setCenter(cityProfile.center);
+      googleMap.setZoom(13);
+      return;
+    }
+    const leafletMap = leafletMapRef.current;
+    if (leafletMap && cityProfile?.bounds) {
+      leafletMap.fitBounds([
+        [cityProfile.bounds.south, cityProfile.bounds.west],
+        [cityProfile.bounds.north, cityProfile.bounds.east],
+      ], { padding: [36, 36], animate: true });
+    } else if (leafletMap && cityProfile?.center) {
+      leafletMap.setView([cityProfile.center.lat, cityProfile.center.lng], 13, { animate: true });
+    }
+  }
+
+  function handleMapKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+    const key = event.key;
+    if ((event.ctrlKey || event.metaKey) && ['+', '=', '-', '0'].includes(key)) {
+      event.preventDefault();
+      if (key === '0') resetMapView();
+      else changeZoom(key === '-' ? -1 : 1);
+      return;
+    }
+    if (key === '+' || key === '=') {
+      event.preventDefault();
+      changeZoom(1);
+    } else if (key === '-') {
+      event.preventDefault();
+      changeZoom(-1);
+    }
+  }
+
   return (
-    <div className="map-frame">
+    <div
+      ref={frameRef}
+      className="map-frame"
+      tabIndex={0}
+      onKeyDown={handleMapKeyDown}
+      onPointerDownCapture={() => frameRef.current?.focus({ preventScroll: true })}
+      aria-label="Mapa interativo. Use a roda do mouse ou Control mais e menos para zoom; clique e arraste para mover."
+    >
       <div ref={containerRef} className="leaflet-map" aria-label="Mapa interativo de clientes" />
       {provider === 'loading' && <div className="map-loading">Preparando mapa…</div>}
       {provider === 'google-error' && (
@@ -324,6 +407,16 @@ export function ClientMap({ clients, cityProfile, selectedId, onSelect }: Client
               : 'Google Maps · selecione uma cidade'
             : 'Modo demonstração · OpenStreetMap'}
         </div>
+      )}
+      {provider !== 'loading' && provider !== 'google-error' && (
+        <>
+          <div className="map-zoom-control" aria-label="Controles do mapa">
+            <button onClick={() => changeZoom(1)} aria-label="Aproximar mapa"><Plus size={17} /></button>
+            <button onClick={() => changeZoom(-1)} aria-label="Afastar mapa"><Minus size={17} /></button>
+            <button onClick={resetMapView} aria-label="Mostrar cidade inteira"><LocateFixed size={17} /></button>
+          </div>
+          <div className="map-interaction-hint">Role para zoom · arraste para mover · Ctrl + / −</div>
+        </>
       )}
     </div>
   );
