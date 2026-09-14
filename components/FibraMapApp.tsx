@@ -172,6 +172,17 @@ function generatedClientId(name: string, street: string, number: string, city: s
   return `AUTO-${(hash >>> 0).toString(36).toUpperCase()}`;
 }
 
+function withResolvedLocation(client: ClientRecord, updates: Partial<ClientRecord> = {}): ClientRecord {
+  const resolved = { ...client, ...updates };
+  return {
+    ...resolved,
+    status: resolved.status === 'Pendente' ? 'Ativo' : resolved.status,
+    pendingReason: undefined,
+    importIssues: [],
+    locationQuality: resolved.locationQuality === 'pendente' ? 'informada' : resolved.locationQuality,
+  };
+}
+
 function blankClientDraft(profile: CityProfile | null): ClientDraft {
   return {
     id: '',
@@ -347,11 +358,13 @@ export function FibraMapApp() {
     return scopedCityClients.filter((client) => {
       const matchesStatus = status === 'Todos' || client.status === status;
       const matchesPlan = plan === 'Todos' || client.plan === plan;
+      const belongsToRuralGroup = cityRuralGroupByClientId.has(client.id);
       const hasLocation = (client.lat !== undefined && client.lng !== undefined)
-        || cityRuralGroupByClientId.has(client.id);
+        || belongsToRuralGroup;
       const matchesLocation = locationFilter === 'Todos'
         || (locationFilter === 'Mapeados' && hasLocation)
-        || (locationFilter === 'Revisar' && (!hasLocation || Boolean(client.importIssues?.length)));
+        || (locationFilter === 'Revisar' && (!hasLocation
+          || (!belongsToRuralGroup && Boolean(client.importIssues?.length))));
       const haystack = normalizeKey([
         client.id,
         client.externalId,
@@ -672,6 +685,50 @@ export function FibraMapApp() {
 
   useEffect(() => {
     if (!storageReady) return;
+    const groupedClientIds = new Set(ruralGroups.flatMap((group) => group.clientIds));
+    if (!groupedClientIds.size) return;
+    setClients((current) => {
+      let changed = false;
+      const normalized = current.map((client) => {
+        if (!groupedClientIds.has(client.id)) return client;
+        if (client.status !== 'Pendente' && !client.pendingReason && !client.importIssues?.length
+          && client.locationQuality !== 'pendente') return client;
+        changed = true;
+        return withResolvedLocation(client, {
+          locationQuality: client.lat !== undefined && client.lng !== undefined
+            ? client.locationQuality
+            : 'informada',
+        });
+      });
+      return changed ? normalized : current;
+    });
+  }, [ruralGroups, storageReady]);
+
+  useEffect(() => {
+    if (!storageReady) return;
+    const groupedClientIds = new Set(ruralGroups.flatMap((group) => group.clientIds));
+    setHistory((current) => {
+      let changed = false;
+      const synchronized = current.map((batch) => {
+        const records = clients.filter((client) => client.importBatchId === batch.id);
+        const mapped = records.filter((client) => (
+          (client.lat !== undefined && client.lng !== undefined) || groupedClientIds.has(client.id)
+        )).length;
+        const pending = records.length - mapped;
+        const rejected = records.filter((client) => (
+          !groupedClientIds.has(client.id) && Boolean(client.importIssues?.length)
+        )).length;
+        if (batch.total === records.length && batch.mapped === mapped
+          && batch.pending === pending && batch.rejected === rejected) return batch;
+        changed = true;
+        return { ...batch, total: records.length, mapped, pending, rejected };
+      });
+      return changed ? synchronized : current;
+    });
+  }, [clients, ruralGroups, storageReady]);
+
+  useEffect(() => {
+    if (!storageReady) return;
     try {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
         clients,
@@ -818,6 +875,14 @@ export function FibraMapApp() {
         ? withoutMovedClients.map((group) => group.id === id ? savedGroup : group)
         : [...withoutMovedClients, savedGroup];
     });
+    const resolvedClientIds = new Set(validClientIds);
+    setClients((current) => current.map((client) => resolvedClientIds.has(client.id)
+      ? withResolvedLocation(client, {
+          locationQuality: client.lat !== undefined && client.lng !== undefined
+            ? client.locationQuality
+            : 'informada',
+        })
+      : client));
     setRuralGroupsOpen(false);
     setRuralGroupDraft(null);
     setRuralGroupSearch('');
@@ -1376,17 +1441,18 @@ export function FibraMapApp() {
       return;
     }
 
-    const wasLocated = selected.lat !== undefined && selected.lng !== undefined;
+    const wasLocated = (selected.lat !== undefined && selected.lng !== undefined)
+      || cityRuralGroupByClientId.has(selected.id);
     setClients((current) => current.map((client) => client.id === selected.id ? {
-      ...client,
-      lat: positionDraft.lat,
-      lng: positionDraft.lng,
-      suggestedLat: undefined,
-      suggestedLng: undefined,
-      suggestedAddress: undefined,
-      suggestionSource: undefined,
-      locationQuality: 'informada',
-      pendingReason: undefined,
+      ...withResolvedLocation(client, {
+        lat: positionDraft.lat,
+        lng: positionDraft.lng,
+        suggestedLat: undefined,
+        suggestedLng: undefined,
+        suggestedAddress: undefined,
+        suggestionSource: undefined,
+        locationQuality: 'informada',
+      }),
     } : client));
     if (!wasLocated && selected.importBatchId) {
       setHistory((current) => current.map((batch) => batch.id === selected.importBatchId ? {
@@ -1408,8 +1474,8 @@ export function FibraMapApp() {
 
   function beginReviewHold(client: ClientRecord) {
     const grouped = cityRuralGroupByClientId.has(client.id);
-    const needsReview = Boolean(client.importIssues?.length)
-      || (!grouped && (client.lat === undefined || client.lng === undefined));
+    const needsReview = !grouped && (Boolean(client.importIssues?.length)
+      || client.lat === undefined || client.lng === undefined);
     if (!needsReview) return;
     clearReviewHold();
     reviewHoldTimerRef.current = window.setTimeout(() => {
@@ -1557,6 +1623,14 @@ export function FibraMapApp() {
     } else {
       resolved = await geocode(base, profile.ibgeId);
     }
+    const remainsInRuralGroup = Boolean(original && cityRuralGroupByClientId.has(original.id));
+    if ((resolved.lat !== undefined && resolved.lng !== undefined) || remainsInRuralGroup) {
+      resolved = withResolvedLocation(resolved, {
+        locationQuality: resolved.lat !== undefined && resolved.lng !== undefined
+          ? resolved.locationQuality
+          : 'informada',
+      });
+    }
 
     setClients((current) => {
       if (original) return current.map((client) => client.id === original.id ? resolved : client);
@@ -1602,7 +1676,10 @@ export function FibraMapApp() {
       importIssues: [],
       needsGeocoding: true,
     };
-    const resolved = await geocode(row, activeCityProfile.ibgeId);
+    const geocoded = await geocode(row, activeCityProfile.ibgeId);
+    const resolved = geocoded.lat !== undefined && geocoded.lng !== undefined
+      ? withResolvedLocation(geocoded)
+      : geocoded;
     setClients((current) => current.map((client) => client.id === selected.id ? resolved : client));
     if (resolved.lat !== undefined && resolved.lng !== undefined) setLocationFilter('Todos');
     setClientEditorBusy(false);
@@ -1683,9 +1760,12 @@ export function FibraMapApp() {
     const records = clients.filter((client) => client.importBatchId === batchId);
     return {
       records,
-      mapped: records.filter((client) => client.lat !== undefined && client.lng !== undefined).length,
-      pending: records.filter((client) => client.lat === undefined || client.lng === undefined).length,
-      issues: records.filter((client) => Boolean(client.importIssues?.length)).length,
+      mapped: records.filter((client) => (client.lat !== undefined && client.lng !== undefined)
+        || cityRuralGroupByClientId.has(client.id)).length,
+      pending: records.filter((client) => (client.lat === undefined || client.lng === undefined)
+        && !cityRuralGroupByClientId.has(client.id)).length,
+      issues: records.filter((client) => Boolean(client.importIssues?.length)
+        && !cityRuralGroupByClientId.has(client.id)).length,
     };
   }
 
@@ -1702,6 +1782,7 @@ export function FibraMapApp() {
 
   function reviewBatch(batch: ImportBatch) {
     const firstPending = clients.find((client) => client.importBatchId === batch.id
+      && !cityRuralGroupByClientId.has(client.id)
       && (client.lat === undefined || client.lng === undefined || Boolean(client.importIssues?.length)));
     setCity(batch.city);
     setActiveBatchId(batch.id);

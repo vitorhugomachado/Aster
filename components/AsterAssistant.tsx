@@ -32,11 +32,13 @@ function buildContext(
   groups: RuralClientGroup[],
   imports: ImportBatch[],
 ) {
-  const groupByClient = new Map<string, string>();
-  groups.forEach((group) => group.clientIds.forEach((clientId) => groupByClient.set(clientId, group.name)));
+  const groupByClient = new Map<string, RuralClientGroup>();
+  groups.forEach((group) => group.clientIds.forEach((clientId) => groupByClient.set(clientId, group)));
   return {
     city: { name: city?.name ?? '', state: city?.state ?? '' },
-    clients: clients.map((client) => ({
+    clients: clients.map((client) => {
+      const ruralGroup = groupByClient.get(client.id);
+      return {
       id: client.externalId ?? client.id,
       name: client.name,
       address: [client.street, client.number, client.complement, client.neighborhood, client.city, client.state, client.zip]
@@ -50,11 +52,16 @@ function buildContext(
       registeredAt: client.registeredAt ?? '',
       location: client.lat !== undefined && client.lng !== undefined
         ? { status: client.locationQuality, lat: client.lat, lng: client.lng }
-        : { status: 'sem localização' },
-      reviewReason: client.importIssues?.join(' · ') || client.pendingReason || '',
-      ruralGroup: groupByClient.get(client.id) ?? '',
+        : ruralGroup
+          ? { status: 'grupo rural', lat: ruralGroup.lat, lng: ruralGroup.lng }
+          : { status: 'sem localização' },
+      reviewReason: ruralGroup
+        ? ''
+        : client.importIssues?.join(' · ') || client.pendingReason || '',
+      ruralGroup: ruralGroup?.name ?? '',
       importId: client.importBatchId ?? '',
-    })),
+      };
+    }),
     groups: groups.map((group) => ({
       id: group.id,
       name: group.name,
