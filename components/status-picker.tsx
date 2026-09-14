@@ -45,7 +45,7 @@ export const StatusPicker: React.FC<StatusPickerProps> = ({
           aria-haspopup="listbox"
           aria-expanded={open}
           layout
-          className="relative flex cursor-pointer items-center justify-center gap-1 rounded-full bg-[#F4F4F9] px-4 py-2 dark:bg-zinc-800"
+          className="relative flex cursor-pointer items-center justify-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface-muted)] px-4 py-2"
           onClick={() => {
             setOpen(!open);
           }}
@@ -94,7 +94,7 @@ export const StatusPicker: React.FC<StatusPickerProps> = ({
                   )}
                 </AnimatePresence>
 
-                <span className="flex items-center justify-center text-sm font-medium text-neutral-700 dark:text-zinc-100">
+                <span className="flex items-center justify-center text-sm font-medium text-[var(--foreground)]">
                   <AnimatePresence mode="popLayout" initial={false}>
                     {(status !== 0
                       ? (activeItem?.name.split('') ?? [])
@@ -155,7 +155,7 @@ export const StatusPicker: React.FC<StatusPickerProps> = ({
                   <AnimatePresence mode="popLayout">
                     {status !== 0 && (
                       <motion.span
-                        className="ml-2 flex items-center justify-center rounded-full bg-gray-300 p-[4px] text-sm font-medium text-neutral-400 dark:bg-zinc-700"
+                        className="ml-2 flex items-center justify-center rounded-full bg-[var(--border-strong)] p-[4px] text-sm font-medium text-[var(--foreground-subtle)]"
                         key={`${status}-space`}
                         initial={{
                           opacity: 0,
@@ -196,7 +196,7 @@ export const StatusPicker: React.FC<StatusPickerProps> = ({
             {open && (
               <motion.div
                 role="listbox"
-                className="absolute -translate-y-[100%] rounded-3xl border border-gray-100 bg-white p-1 dark:border-white/10 dark:bg-zinc-900"
+                className="absolute -translate-y-[100%] rounded-3xl border border-[var(--border)] bg-[var(--surface)] p-1 shadow-[var(--shadow-overlay)]"
                 initial={{
                   opacity: 0,
                   scale: 0.5,
@@ -228,7 +228,7 @@ export const StatusPicker: React.FC<StatusPickerProps> = ({
                       onMouseLeave={() => {
                         setHoveredIdx(0);
                       }}
-                      className="group relative flex cursor-pointer items-center justify-center gap-1 rounded-full bg-[#F4F4F9] p-2 dark:border-white/10 dark:bg-white/5"
+                      className="group relative flex cursor-pointer items-center justify-center gap-1 rounded-full bg-[var(--surface-muted)] p-2"
                       role="option"
                       aria-selected={status === item.id}
                       whileHover={{ y: -2 }}
@@ -241,7 +241,7 @@ export const StatusPicker: React.FC<StatusPickerProps> = ({
                       <AnimatePresence mode="popLayout">
                         {hoveredIdx === item.id && (
                           <motion.div
-                            className="absolute -top-[40px] left-2 -translate-y-2 rounded-full border border-gray-100 bg-[#F4F4F9] dark:border-white/10 dark:bg-white/5"
+                            className="absolute -top-[40px] left-2 -translate-y-2 rounded-full border border-[var(--border)] bg-[var(--surface)] shadow-sm"
                             initial={{
                               opacity: 0,
                               scale: 0.5,
@@ -264,13 +264,13 @@ export const StatusPicker: React.FC<StatusPickerProps> = ({
                             }}
                           >
                             <div className="relative flex w-full flex-col items-center px-2 py-1">
-                              <div className="text-sm font-medium whitespace-nowrap text-neutral-700 dark:text-zinc-100">
+                              <div className="text-sm font-medium whitespace-nowrap text-[var(--foreground)]">
                                 {item.name}
                               </div>
 
                               <div className="absolute -bottom-[12px] left-4">
-                                <div className="h-[6px] w-[13px] rounded-b-full border bg-[#F4F4F9] dark:bg-zinc-800" />
-                                <div className="size-1.5 -translate-x-[2px] translate-y-[1px] rounded-full border bg-[#F4F4F9] dark:bg-zinc-800" />
+                                <div className="h-[6px] w-[13px] rounded-b-full border border-[var(--border)] bg-[var(--surface)]" />
+                                <div className="size-1.5 -translate-x-[2px] translate-y-[1px] rounded-full border border-[var(--border)] bg-[var(--surface)]" />
                               </div>
                             </div>
                           </motion.div>
@@ -288,7 +288,7 @@ export const StatusPicker: React.FC<StatusPickerProps> = ({
                     </motion.div>
                   ))}
 
-                  <div className="flex items-center justify-center gap-1 rounded-full bg-[#F4F4F9] dark:bg-zinc-800 p-2">
+                  <div className="flex items-center justify-center gap-1 rounded-full bg-[var(--surface-muted)] p-2">
                     <EllipsisIcon className="size-6 text-sm text-neutral-400" />
                   </div>
                 </div>

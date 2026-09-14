@@ -3,12 +3,12 @@ import Image from 'next/image';
 import { WatermelonButton, WatermelonCard, WatermelonInput } from '@/components/watermelon-system';
 
 const colors = [
-  { name: 'Ink', value: '#000000', style: { background: '#000000', color: '#ffffff' } },
+  { name: 'Ink', value: '#17161B', style: { background: '#17161b', color: '#ffffff' } },
   { name: 'Canvas', value: '#FFFFFF', style: { background: '#ffffff', color: '#000000' } },
-  { name: 'Soft gray', value: '#F6F6F6', style: { background: '#f6f6f6', color: '#000000' } },
-  { name: 'Aster violet', value: '#5A31F4', style: { background: '#5a31f4', color: '#ffffff' } },
-  { name: 'Positive', value: '#05944F', style: { background: '#05944f', color: '#ffffff' } },
-  { name: 'Negative', value: '#E11900', style: { background: '#e11900', color: '#ffffff' } },
+  { name: 'Soft gray', value: '#F1F0F5', style: { background: '#f1f0f5', color: '#17161b' } },
+  { name: 'Aster violet', value: '#5B3DF5', style: { background: '#5b3df5', color: '#ffffff' } },
+  { name: 'Positive', value: '#087A55', style: { background: '#087a55', color: '#ffffff' } },
+  { name: 'Negative', value: '#C9342B', style: { background: '#c9342b', color: '#ffffff' } },
 ];
 
 const spaces = [4, 8, 12, 16, 24, 32, 40, 48];
@@ -85,7 +85,7 @@ export default function DesignSystemPage() {
         <section className="ds-section">
           <div className="ds-section-heading">
             <span>05</span><h2>Formulários</h2>
-            <p>Rótulos permanecem visíveis, ajuda contextual é curta e o foco recebe contraste azul.</p>
+            <p>Rótulos permanecem visíveis, ajuda contextual é curta e o foco recebe contraste violeta.</p>
           </div>
           <div className="ds-canvas">
             <label className="ds-field">

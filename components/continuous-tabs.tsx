@@ -57,15 +57,11 @@ export const ContinuousTabs: FC<ContinuousTabsProps> = ({
                 className={`
           relative flex items-center gap-0.5 sm:gap-1 p-1 sm:p-1.5
             rounded-full
-            border border-[#E5E5E9] dark:border-zinc-800
-            bg-linear-to-b from-[#ffffff] to-[#e9e9f2]
-            dark:from-zinc-900 dark:to-zinc-950
+            border border-[var(--border)]
+            bg-linear-to-b from-[var(--surface)] to-[var(--surface-subtle)]
             shadow-[inset_0_-2px_4px_rgba(0,0,0,0.08),
                     inset_0_1px_0_rgba(255,255,255,0.9),
                     0_4px_12px_rgba(0,0,0,0.03)]
-            dark:shadow-[inset_0_-2px_4px_rgba(0,0,0,0.5),
-                    inset_0_1px_0_rgba(255,255,255,0.05),
-                    0_10px_20px_rgba(0,0,0,0.4)]
             transition-all duration-300
             ${className}`}
             >
@@ -92,7 +88,7 @@ export const ContinuousTabs: FC<ContinuousTabsProps> = ({
                                     }}
                                     className="
                       absolute inset-0 rounded-full
-                      bg-[#252528] dark:bg-zinc-100
+                      bg-[var(--foreground)]
                       shadow-xs
                     "
                                 />
@@ -103,8 +99,8 @@ export const ContinuousTabs: FC<ContinuousTabsProps> = ({
                                 layout="position"
                                 className={`relative z-10 font-semibold transition-colors duration-200 ${compact ? 'text-xs' : 'text-sm sm:text-base'}
                     ${isActive
-                                        ? "text-[#EDEDEC] dark:text-zinc-950"
-                                        : "text-[#343437] dark:text-zinc-500 hover:text-[#62625D] dark:hover:text-zinc-300"
+                                        ? "text-[var(--surface)]"
+                                        : "text-[var(--foreground-muted)] hover:text-[var(--foreground)]"
                                     }
                   `}
                             >

@@ -62,19 +62,19 @@ export const LabeledProgressIndicator: FC<LabeledProgressIndicatorProps> = ({
               damping: 100,
               mass: 10,
             }}
-            className={`origon-bottom flex w-full items-center justify-center font-bold text-[#77777f] will-change-transform transform-3d dark:text-zinc-400 ${compact ? 'text-xs' : 'text-3xl'}`}
+            className={`origon-bottom flex w-full items-center justify-center font-bold text-[var(--foreground-muted)] will-change-transform transform-3d ${compact ? 'text-xs' : 'text-3xl'}`}
           >
             {labels[labelIndex]}
           </motion.span>
         </AnimatePresence>
       </div>
 
-      <div className={`${compact ? 'h-2 w-full' : 'h-4 w-[320px]'} overflow-hidden rounded-full border border-black/5 bg-[#F0F0F0] shadow-inner dark:border-white/5 dark:bg-zinc-900`}>
+      <div className={`${compact ? 'h-2 w-full' : 'h-4 w-[320px]'} overflow-hidden rounded-full border border-[var(--border)] bg-[var(--surface-muted)] shadow-inner`}>
         <motion.div
           initial={{ width: '0%' }}
           animate={{ width: progress }}
           transition={{ duration: 1, ease: 'easeOut' }}
-          className="relative h-full overflow-hidden rounded-full bg-[#5A31F4] dark:bg-violet-500"
+          className="relative h-full overflow-hidden rounded-full bg-[var(--primary)]"
         >
           <motion.div
             initial={{ x: '-100%' }}
