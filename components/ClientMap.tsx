@@ -2,7 +2,7 @@
 
 import { importLibrary, setOptions } from '@googlemaps/js-api-loader';
 import { LocateFixed, Minus, Plus } from 'lucide-react';
-import { KeyboardEvent as ReactKeyboardEvent, useEffect, useRef, useState } from 'react';
+import { KeyboardEvent as ReactKeyboardEvent, useCallback, useEffect, useRef, useState } from 'react';
 import type { LayerGroup, Map as LeafletMap } from 'leaflet';
 import { CityProfile, ClientRecord, STATUS_COLORS } from './client-data';
 
@@ -10,7 +10,11 @@ interface ClientMapProps {
   clients: ClientRecord[];
   cityProfile: CityProfile | null;
   selectedId: string | null;
+  positioningId: string | null;
   onSelect: (id: string) => void;
+  onStartPositioning: (id: string) => void;
+  onPositionChange: (id: string, lat: number, lng: number) => void;
+  onMarkerAnchorChange: (anchor: { x: number; y: number } | null) => void;
 }
 
 type MapProvider = 'loading' | 'google' | 'demo' | 'google-error';
@@ -31,11 +35,22 @@ function loadGoogleMaps(apiKey: string) {
   return googleMapsLibraryPromise;
 }
 
-export function ClientMap({ clients, cityProfile, selectedId, onSelect }: ClientMapProps) {
+export function ClientMap({
+  clients,
+  cityProfile,
+  selectedId,
+  positioningId,
+  onSelect,
+  onStartPositioning,
+  onPositionChange,
+  onMarkerAnchorChange,
+}: ClientMapProps) {
   const frameRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const googleMapRef = useRef<google.maps.Map | null>(null);
   const googleOverlaysRef = useRef<Array<google.maps.Circle | google.maps.Polygon | google.maps.Marker>>([]);
+  const googleAnchorOverlayRef = useRef<google.maps.OverlayView | null>(null);
+  const googlePositionListenerRef = useRef<google.maps.MapsEventListener | null>(null);
   const googleCityKeyRef = useRef('');
   const googleSelectedRef = useRef<string | null>(null);
   const leafletMapRef = useRef<LeafletMap | null>(null);
@@ -43,7 +58,26 @@ export function ClientMap({ clients, cityProfile, selectedId, onSelect }: Client
   const leafletRef = useRef<typeof import('leaflet') | null>(null);
   const leafletCityKeyRef = useRef('');
   const leafletSelectedRef = useRef<string | null>(null);
+  const leafletAnchorHandlerRef = useRef<(() => void) | null>(null);
+  const leafletPositionHandlerRef = useRef<((event: import('leaflet').LeafletMouseEvent) => void) | null>(null);
+  const holdTimerRef = useRef<number | null>(null);
+  const holdTriggeredRef = useRef<string | null>(null);
   const [provider, setProvider] = useState<MapProvider>('loading');
+
+  const clearHold = useCallback(() => {
+    if (holdTimerRef.current !== null) window.clearTimeout(holdTimerRef.current);
+    holdTimerRef.current = null;
+  }, []);
+
+  const beginHold = useCallback((clientId: string) => {
+    clearHold();
+    holdTriggeredRef.current = null;
+    holdTimerRef.current = window.setTimeout(() => {
+      holdTriggeredRef.current = clientId;
+      navigator.vibrate?.([90, 45, 90]);
+      onStartPositioning(clientId);
+    }, 5000);
+  }, [clearHold, onStartPositioning]);
 
   useEffect(() => {
     let cancelled = false;
@@ -134,6 +168,11 @@ export function ClientMap({ clients, cityProfile, selectedId, onSelect }: Client
         overlay.setMap(null);
       });
       googleOverlaysRef.current = [];
+      googleAnchorOverlayRef.current?.setMap(null);
+      googleAnchorOverlayRef.current = null;
+      googlePositionListenerRef.current?.remove();
+      googlePositionListenerRef.current = null;
+      clearHold();
       googleMapRef.current = null;
       if (leafletMapRef.current) {
         leafletMapRef.current.remove();
@@ -142,7 +181,7 @@ export function ClientMap({ clients, cityProfile, selectedId, onSelect }: Client
         leafletRef.current = null;
       }
     };
-  }, []);
+  }, [clearHold]);
 
   useEffect(() => {
     const map = googleMapRef.current;
@@ -190,6 +229,7 @@ export function ClientMap({ clients, cityProfile, selectedId, onSelect }: Client
       const center = { lat: client.lat, lng: client.lng };
       const color = STATUS_COLORS[client.status];
       const isSelected = client.id === selectedId;
+      const isPositioning = client.id === positioningId;
 
       if (client.locationQuality === 'aproximada') {
         const halo = new google.maps.Circle({
@@ -206,7 +246,7 @@ export function ClientMap({ clients, cityProfile, selectedId, onSelect }: Client
         googleOverlaysRef.current.push(halo);
       }
 
-      const markerSize = isSelected ? 58 : 44;
+      const markerSize = isSelected ? 24 : 18;
       const marker = new google.maps.Marker({
         map,
         position: center,
@@ -217,9 +257,25 @@ export function ClientMap({ clients, cityProfile, selectedId, onSelect }: Client
           scaledSize: new google.maps.Size(markerSize, markerSize),
           anchor: new google.maps.Point(markerSize / 2, markerSize - 3),
         },
+        draggable: isPositioning,
+        animation: isPositioning ? google.maps.Animation.BOUNCE : null,
         zIndex: isSelected ? 20 : 10,
       });
-      marker.addListener('click', () => onSelect(client.id));
+      marker.addListener('mousedown', () => beginHold(client.id));
+      marker.addListener('mouseup', clearHold);
+      marker.addListener('mouseout', clearHold);
+      marker.addListener('dragstart', clearHold);
+      marker.addListener('dragend', () => {
+        const position = marker.getPosition();
+        if (position && isPositioning) onPositionChange(client.id, position.lat(), position.lng());
+      });
+      marker.addListener('click', () => {
+        if (holdTriggeredRef.current === client.id) {
+          holdTriggeredRef.current = null;
+          return;
+        }
+        onSelect(client.id);
+      });
       googleOverlaysRef.current.push(marker);
       bounds.extend(center);
     });
@@ -248,7 +304,14 @@ export function ClientMap({ clients, cityProfile, selectedId, onSelect }: Client
       map.setCenter(cityProfile.center);
       map.setZoom(13);
     }
-  }, [cityProfile, clients, onSelect, provider, selectedId]);
+    googlePositionListenerRef.current?.remove();
+    googlePositionListenerRef.current = positioningId
+      ? map.addListener('click', (event: google.maps.MapMouseEvent) => {
+          const point = event.latLng;
+          if (point) onPositionChange(positioningId, point.lat(), point.lng());
+        })
+      : null;
+  }, [beginHold, cityProfile, clearHold, clients, onPositionChange, onSelect, positioningId, provider, selectedId]);
 
   useEffect(() => {
     const L = leafletRef.current;
@@ -270,7 +333,8 @@ export function ClientMap({ clients, cityProfile, selectedId, onSelect }: Client
     located.forEach((client) => {
       const color = STATUS_COLORS[client.status];
       const isSelected = client.id === selectedId;
-      const markerSize = isSelected ? 58 : 44;
+      const isPositioning = client.id === positioningId;
+      const markerSize = isSelected ? 24 : 18;
       const marker = L.marker([client.lat, client.lng], {
         icon: L.icon({
           iconUrl: '/brand/aster-client-pin.png',
@@ -279,6 +343,7 @@ export function ClientMap({ clients, cityProfile, selectedId, onSelect }: Client
           tooltipAnchor: [0, -markerSize + 8],
         }),
         bubblingMouseEvents: false,
+        draggable: isPositioning,
         zIndexOffset: isSelected ? 1000 : 0,
       });
       marker.bindTooltip(`${client.name} · ${client.status}`, {
@@ -286,7 +351,21 @@ export function ClientMap({ clients, cityProfile, selectedId, onSelect }: Client
         offset: [0, -8],
         opacity: 0.96,
       });
-      marker.on('click', () => onSelect(client.id));
+      marker.on('mousedown touchstart', () => beginHold(client.id));
+      marker.on('mouseup touchend mouseout', clearHold);
+      marker.on('dragstart', clearHold);
+      marker.on('dragend', () => {
+        if (!isPositioning) return;
+        const point = marker.getLatLng();
+        onPositionChange(client.id, point.lat, point.lng);
+      });
+      marker.on('click', () => {
+        if (holdTriggeredRef.current === client.id) {
+          holdTriggeredRef.current = null;
+          return;
+        }
+        onSelect(client.id);
+      });
       marker.addTo(layer);
 
       if (client.locationQuality === 'aproximada') {
@@ -332,7 +411,64 @@ export function ClientMap({ clients, cityProfile, selectedId, onSelect }: Client
     } else if (cityProfile?.center) {
       map.setView([cityProfile.center.lat, cityProfile.center.lng], 13, { animate: false });
     }
-  }, [cityProfile, clients, onSelect, provider, selectedId]);
+    if (leafletPositionHandlerRef.current) map.off('click', leafletPositionHandlerRef.current);
+    if (positioningId) {
+      const positionHandler = (event: import('leaflet').LeafletMouseEvent) => {
+        onPositionChange(positioningId, event.latlng.lat, event.latlng.lng);
+      };
+      leafletPositionHandlerRef.current = positionHandler;
+      map.on('click', positionHandler);
+    } else {
+      leafletPositionHandlerRef.current = null;
+    }
+  }, [beginHold, cityProfile, clearHold, clients, onPositionChange, onSelect, positioningId, provider, selectedId]);
+
+  useEffect(() => {
+    const selectedClient = clients.find((client) => client.id === selectedId);
+    const hasPosition = selectedClient?.lat !== undefined && selectedClient.lng !== undefined;
+
+    googleAnchorOverlayRef.current?.setMap(null);
+    googleAnchorOverlayRef.current = null;
+    const googleMap = googleMapRef.current;
+    if (provider === 'google' && googleMap && hasPosition && !positioningId) {
+      const overlay = new google.maps.OverlayView();
+      overlay.onAdd = () => undefined;
+      overlay.draw = () => {
+        const point = overlay.getProjection()?.fromLatLngToContainerPixel(
+          new google.maps.LatLng(selectedClient.lat!, selectedClient.lng!),
+        );
+        if (point) onMarkerAnchorChange({ x: point.x, y: point.y });
+      };
+      overlay.onRemove = () => undefined;
+      overlay.setMap(googleMap);
+      googleAnchorOverlayRef.current = overlay;
+      return () => {
+        overlay.setMap(null);
+        if (googleAnchorOverlayRef.current === overlay) googleAnchorOverlayRef.current = null;
+      };
+    }
+
+    const leafletMap = leafletMapRef.current;
+    if (leafletAnchorHandlerRef.current && leafletMap) {
+      leafletMap.off('move zoom resize', leafletAnchorHandlerRef.current);
+      leafletAnchorHandlerRef.current = null;
+    }
+    if (provider === 'demo' && leafletMap && hasPosition && !positioningId) {
+      const updateAnchor = () => {
+        const point = leafletMap.latLngToContainerPoint([selectedClient.lat!, selectedClient.lng!]);
+        onMarkerAnchorChange({ x: point.x, y: point.y });
+      };
+      leafletAnchorHandlerRef.current = updateAnchor;
+      leafletMap.on('move zoom resize', updateAnchor);
+      updateAnchor();
+      return () => {
+        leafletMap.off('move zoom resize', updateAnchor);
+        if (leafletAnchorHandlerRef.current === updateAnchor) leafletAnchorHandlerRef.current = null;
+      };
+    }
+
+    onMarkerAnchorChange(null);
+  }, [clients, onMarkerAnchorChange, positioningId, provider, selectedId]);
 
   function changeZoom(delta: number) {
     frameRef.current?.focus({ preventScroll: true });

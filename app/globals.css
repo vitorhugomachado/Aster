@@ -560,6 +560,8 @@ table { width: 100%; border-collapse: collapse; }
 .map-zoom-control button:hover { background: #f2f2f2; }
 .map-interaction-hint { position: absolute; z-index: 650; left: 50%; bottom: 16px; transform: translateX(-50%); border: 1px solid #dedede; border-radius: 4px; background: rgba(255,255,255,.96); padding: 7px 10px; color: #545454; font-size: 9px; font-weight: 650; white-space: nowrap; pointer-events: none; }
 .client-panel { position: absolute; z-index: 760; top: 66px; bottom: 16px; left: 16px; width: min(390px, calc(100% - 32px)); overflow: auto; border: 1px solid #d6d6d6; border-radius: 6px; background: rgba(255,255,255,.985); box-shadow: 0 12px 32px rgba(0,0,0,.12); backdrop-filter: blur(14px); }
+.client-panel-bubble { top: var(--client-anchor-y); bottom: auto; left: var(--client-anchor-x); width: min(360px, calc(100% - 32px)); max-height: min(440px, calc(var(--client-anchor-y) - 28px)); transform: translate(-50%, calc(-100% - 16px)); border-color: rgba(0,0,0,.18); border-radius: 12px; box-shadow: 0 18px 48px rgba(0,0,0,.2); }
+.client-panel-bubble::before { position: absolute; z-index: 5; bottom: -9px; left: 50%; width: 16px; height: 16px; transform: translateX(-50%) rotate(45deg); border-right: 1px solid rgba(0,0,0,.18); border-bottom: 1px solid rgba(0,0,0,.18); background: #fff; content: ''; }
 .client-panel-header { position: sticky; z-index: 3; top: 0; display: flex; align-items: center; justify-content: space-between; gap: 16px; border-bottom: 1px solid #e5e5e5; background: rgba(255,255,255,.98); padding: 16px; }
 .client-panel-title { display: flex; align-items: center; min-width: 0; gap: 11px; }
 .client-panel-title > div { min-width: 0; }
@@ -604,7 +606,20 @@ table { width: 100%; border-collapse: collapse; }
 .client-field input, .client-field select { width: 100%; height: 38px; border: 1px solid #b8b8b8; border-radius: 4px; outline: 0; background: #fff; padding: 0 9px; color: #000; font-size: 10px; }
 .client-field input:focus, .client-field select:focus { border-color: var(--ds-color-accent); box-shadow: 0 0 0 2px rgba(90,49,244,.14); }
 .client-form .client-panel-actions { grid-template-columns: auto minmax(160px, 1fr); }
+.choose-map-position { display: flex; width: 100%; min-height: 40px; align-items: center; justify-content: center; gap: 7px; margin: 0 0 12px; border: 1px solid var(--aster-violet); border-radius: 4px; background: #f5f2ff; color: #3c20b7; font-size: 10px; font-weight: 800; }
+.choose-map-position:hover { background: #ece6ff; }
 .client-form-error { margin: 12px 16px 0; border-left: 3px solid var(--ds-color-negative); background: #fff0ee; padding: 10px 12px; color: #9b1c0b; font-size: 9px; line-height: 1.4; }
+.map-position-toolbar { position: absolute; z-index: 820; right: 50%; bottom: 22px; display: grid; grid-template-columns: auto minmax(200px, 1fr) auto auto; align-items: center; gap: 12px; width: min(720px, calc(100% - 40px)); transform: translateX(50%); border: 1px solid #1f1f1f; border-radius: 10px; background: rgba(255,255,255,.98); padding: 11px 12px; box-shadow: 0 18px 48px rgba(0,0,0,.2); backdrop-filter: blur(14px); }
+.map-position-toolbar > div { min-width: 0; }
+.map-position-toolbar b, .map-position-toolbar small, .map-position-toolbar code { display: block; }
+.map-position-toolbar b { font-size: 11px; }
+.map-position-toolbar small { margin-top: 2px; color: #606060; font-size: 9px; }
+.map-position-toolbar code { margin-top: 4px; color: #3c20b7; font-size: 9px; }
+.position-pulse { width: 12px; height: 12px; border: 3px solid #dcd2ff; border-radius: 50%; background: var(--aster-violet); box-shadow: 0 0 0 0 rgba(90,49,244,.32); animation: position-pulse 1.6s infinite; }
+.position-cancel, .position-confirm { display: flex; min-height: 38px; align-items: center; justify-content: center; gap: 6px; border-radius: 4px; padding: 0 12px; font-size: 10px; font-weight: 800; white-space: nowrap; }
+.position-cancel { border: 1px solid #b8b8b8; background: #fff; color: #111; }
+.position-confirm { border: 1px solid var(--aster-violet); background: var(--aster-violet); color: #fff; }
+@keyframes position-pulse { 70% { box-shadow: 0 0 0 9px rgba(90,49,244,0); } 100% { box-shadow: 0 0 0 0 rgba(90,49,244,0); } }
 .button-spinner { box-sizing: border-box; width: 13px; height: 13px; border: 2px solid rgba(255,255,255,.4); border-top-color: #fff; border-radius: 50%; animation: spin .8s linear infinite; }
 .panel-heading-actions { display: flex; gap: 8px; }
 .table-wrap { border-radius: 4px; }
@@ -787,6 +802,8 @@ table { width: 100%; border-collapse: collapse; }
     box-shadow: 0 -18px 48px rgba(0,0,0,.18);
     animation: mobile-sheet-in .24s cubic-bezier(.2,.8,.2,1);
   }
+  .client-panel-bubble { top: auto; right: 0; bottom: var(--mobile-nav-height); left: 0; width: 100%; max-height: min(82dvh, 760px); transform: none; border-radius: 22px 22px 0 0; }
+  .client-panel-bubble::before { display: none; }
   .mobile-sheet-handle { position: sticky; z-index: 5; top: 0; display: grid; height: 18px; place-items: center; background: #fff; }
   .mobile-sheet-handle span { width: 38px; height: 4px; border-radius: 999px; background: #c7c7c7; }
   .client-panel-header { top: 18px; min-height: 60px; padding: 10px 16px 12px; }
@@ -811,7 +828,17 @@ table { width: 100%; border-collapse: collapse; }
   .client-field > span { margin-bottom: 7px; font-size: 10px; }
   .client-field input, .client-field select { height: 48px; border-radius: 10px; padding: 0 12px; font-size: 16px; }
   .client-form .client-panel-actions { grid-template-columns: .75fr 1.25fr; }
+  .choose-map-position { min-height: 48px; border-radius: 10px; font-size: 11px; }
   .section-help { font-size: 10px; }
+
+  .map-position-toolbar { right: 10px; bottom: calc(var(--mobile-nav-height) + 10px); left: 10px; grid-template-columns: auto minmax(0, 1fr); gap: 9px 10px; width: auto; transform: none; border-radius: 16px; padding: 12px; }
+  .map-position-toolbar b { font-size: 12px; }
+  .map-position-toolbar small { font-size: 10px; line-height: 1.35; }
+  .map-position-toolbar code { font-size: 9px; }
+  .position-cancel, .position-confirm { min-height: 44px; border-radius: 10px; }
+  .position-cancel { grid-column: 1 / 2; }
+  .position-confirm { grid-column: 2 / 3; }
+  .mobile-client-card { touch-action: pan-y; user-select: none; -webkit-user-select: none; }
 
   .panel-view {
     height: calc(100% - var(--mobile-nav-height));

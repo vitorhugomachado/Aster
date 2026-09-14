@@ -6,11 +6,13 @@ import {
   Clock3,
   LocateFixed,
   MapPin,
+  MapPinned,
   Pencil,
   Save,
   UserRoundPlus,
   X,
 } from 'lucide-react';
+import type { CSSProperties } from 'react';
 import { CityProfile, ClientRecord, ClientStatus, STATUS_COLORS } from './client-data';
 
 export type ClientPanelMode = 'view' | 'create' | 'edit';
@@ -44,12 +46,14 @@ interface ClientPanelProps {
   cities: CityProfile[];
   busy: boolean;
   error: string;
+  anchor?: { x: number; y: number } | null;
   onChange: (field: keyof ClientDraft, value: string) => void;
   onClose: () => void;
   onEdit: () => void;
   onCancel: () => void;
   onSave: () => void;
   onRelocate: () => void;
+  onChooseOnMap: () => void;
 }
 
 const statuses: ClientStatus[] = ['Ativo', 'Instalação', 'Atenção', 'Inativo', 'Pendente'];
@@ -97,18 +101,27 @@ export function ClientPanel({
   cities,
   busy,
   error,
+  anchor,
   onChange,
   onClose,
   onEdit,
   onCancel,
   onSave,
   onRelocate,
+  onChooseOnMap,
 }: ClientPanelProps) {
   const editing = mode === 'create' || mode === 'edit';
   const locationReady = client?.lat !== undefined && client?.lng !== undefined;
 
   return (
-    <aside className="client-panel" aria-label={mode === 'create' ? 'Cadastrar cliente' : 'Detalhes do cliente'}>
+    <aside
+      className={`client-panel ${anchor && mode === 'view' ? 'client-panel-bubble' : ''}`}
+      style={anchor && mode === 'view' ? ({
+        '--client-anchor-x': `${anchor.x}px`,
+        '--client-anchor-y': `${anchor.y}px`,
+      } as CSSProperties) : undefined}
+      aria-label={mode === 'create' ? 'Cadastrar cliente' : 'Detalhes do cliente'}
+    >
       <div className="mobile-sheet-handle" aria-hidden="true"><span /></div>
       <header className="client-panel-header">
         <div className="client-panel-title">
@@ -224,6 +237,11 @@ export function ClientPanel({
           <section className="client-panel-section">
             <div className="section-caption">Posição manual — opcional</div>
             <p className="section-help">Preencha as duas coordenadas somente quando souber a posição correta. Sem elas, o sistema tentará localizar o endereço automaticamente.</p>
+            {mode === 'edit' && (
+              <button type="button" className="choose-map-position" onClick={onChooseOnMap}>
+                <MapPinned size={16} />Escolher no mapa
+              </button>
+            )}
             <div className="client-form-grid">
               <Field label="Latitude" field="lat" value={draft.lat} onChange={onChange} placeholder="-23.3402" />
               <Field label="Longitude" field="lng" value={draft.lng} onChange={onChange} placeholder="-52.7786" />

@@ -71,6 +71,13 @@ interface MunicipalityOption {
   name: string;
 }
 
+interface PositionDraft {
+  clientId: string;
+  lat: number;
+  lng: number;
+  returnMode: 'view' | 'edit';
+}
+
 const STATUS_OPTIONS: Array<ClientStatus | 'Todos'> = [
   'Todos',
   'Ativo',
@@ -223,8 +230,12 @@ export function FibraMapApp() {
   const [clientDraft, setClientDraft] = useState<ClientDraft>(() => blankClientDraft(DEFAULT_CITY_PROFILE));
   const [clientEditorBusy, setClientEditorBusy] = useState(false);
   const [clientEditorError, setClientEditorError] = useState('');
+  const [positionDraft, setPositionDraft] = useState<PositionDraft | null>(null);
+  const [clientBubbleAnchor, setClientBubbleAnchor] = useState<{ x: number; y: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  const reviewHoldTimerRef = useRef<number | null>(null);
+  const suppressListClickRef = useRef<string | null>(null);
   const newCityState = PARANA_STATE;
   const municipalities = MUNICIPALITIES;
 
@@ -306,6 +317,30 @@ export function FibraMapApp() {
   }, [locationFilter, plan, query, scopedCityClients, status]);
 
   const selected = cityClients.find((client) => client.id === selectedId) ?? null;
+  const mapClients = useMemo(() => {
+    if (!selected) return visibleClients;
+    let preview: { lat: number; lng: number } | null = null;
+    if (positionDraft?.clientId === selected.id) {
+      preview = positionDraft;
+    } else if (clientPanelMode === 'edit') {
+      const lat = asNumber(normalizeText(clientDraft.lat).replace(',', '.'));
+      const lng = asNumber(normalizeText(clientDraft.lng).replace(',', '.'));
+      if (lat !== undefined && lng !== undefined && Math.abs(lat) <= 90 && Math.abs(lng) <= 180) {
+        preview = { lat, lng };
+      }
+    }
+    if (!preview) return visibleClients;
+    const previewClient: ClientRecord = {
+      ...selected,
+      lat: preview.lat,
+      lng: preview.lng,
+      locationQuality: 'informada',
+      pendingReason: undefined,
+    };
+    return visibleClients.some((client) => client.id === selected.id)
+      ? visibleClients.map((client) => client.id === selected.id ? previewClient : client)
+      : [...visibleClients, previewClient];
+  }, [clientDraft.lat, clientDraft.lng, clientPanelMode, positionDraft, selected, visibleClients]);
   const locatedCount = cityClients.filter((client) => client.lat !== undefined && client.lng !== undefined).length;
   const pendingCount = cityClients.length - locatedCount;
 
@@ -320,7 +355,46 @@ export function FibraMapApp() {
     setSelectedId(id);
     setClientPanelMode('view');
     setClientEditorError('');
+    setClientBubbleAnchor(null);
   }, []);
+
+  const handleMarkerAnchorChange = useCallback((anchor: { x: number; y: number } | null) => {
+    setClientBubbleAnchor((current) => {
+      if (!anchor || !current) return anchor;
+      return Math.abs(current.x - anchor.x) < 0.5 && Math.abs(current.y - anchor.y) < 0.5 ? current : anchor;
+    });
+  }, []);
+
+  const startPositioning = useCallback((id: string, returnMode: 'view' | 'edit' = 'view') => {
+    const client = clients.find((item) => item.id === id);
+    if (!client) return;
+    const draftLat = returnMode === 'edit' ? asNumber(normalizeText(clientDraft.lat).replace(',', '.')) : undefined;
+    const draftLng = returnMode === 'edit' ? asNumber(normalizeText(clientDraft.lng).replace(',', '.')) : undefined;
+    const lat = draftLat ?? client.lat ?? activeCityProfile?.center?.lat;
+    const lng = draftLng ?? client.lng ?? activeCityProfile?.center?.lng;
+    if (lat === undefined || lng === undefined) {
+      setToast('Selecione uma cidade válida antes de posicionar o cliente.');
+      return;
+    }
+    if (returnMode !== 'edit') setClientDraft(draftFromClient(client));
+    setSelectedId(id);
+    setPositionDraft({ clientId: id, lat, lng, returnMode });
+    setClientDraft((current) => ({ ...current, lat: lat.toFixed(7), lng: lng.toFixed(7) }));
+    setClientPanelMode(null);
+    setClientBubbleAnchor(null);
+    setLocationFilter('Todos');
+    setView('mapa');
+    setToast('Modo de posicionamento ativo: arraste o pin ou toque no mapa e confirme.');
+  }, [activeCityProfile?.center?.lat, activeCityProfile?.center?.lng, clientDraft.lat, clientDraft.lng, clients]);
+
+  const handlePositionChange = useCallback((id: string, lat: number, lng: number) => {
+    setPositionDraft((current) => current?.clientId === id ? { ...current, lat, lng } : current);
+    setClientDraft((current) => ({ ...current, lat: lat.toFixed(7), lng: lng.toFixed(7) }));
+  }, []);
+
+  const handleStartPositioning = useCallback((id: string) => {
+    startPositioning(id, 'view');
+  }, [startPositioning]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -330,6 +404,10 @@ export function FibraMapApp() {
       }
       if (event.key === 'Escape' && importOpen) setImportOpen(false);
       if (event.key === 'Escape' && cityOpen) setCityOpen(false);
+      if (event.key === 'Escape' && positionDraft) {
+        setPositionDraft(null);
+        setClientPanelMode(positionDraft.returnMode);
+      }
       if (event.key === 'Escape' && clientPanelMode) {
         setClientPanelMode(null);
         setSelectedId(null);
@@ -337,7 +415,7 @@ export function FibraMapApp() {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [cityOpen, clientPanelMode, importOpen]);
+  }, [cityOpen, clientPanelMode, importOpen, positionDraft]);
 
   useEffect(() => {
     if (!toast) return;
@@ -822,11 +900,84 @@ export function FibraMapApp() {
     setClientPanelMode(null);
     setSelectedId(null);
     setClientEditorError('');
+    setClientBubbleAnchor(null);
   }
 
   function cancelClientEditor() {
     setClientEditorError('');
     setClientPanelMode(selected ? 'view' : null);
+  }
+
+  function cancelPositioning() {
+    if (!positionDraft) return;
+    setPositionDraft(null);
+    setClientPanelMode(positionDraft.returnMode);
+    setToast('Reposicionamento cancelado.');
+  }
+
+  function confirmPositioning() {
+    if (!positionDraft || !selected) return;
+    const profile = cityProfiles.find((item) => normalizeKey(item.name) === normalizeKey(selected.city));
+    if (profile?.bounds && (
+      positionDraft.lat > profile.bounds.north || positionDraft.lat < profile.bounds.south
+      || positionDraft.lng > profile.bounds.east || positionDraft.lng < profile.bounds.west
+    )) {
+      setToast(`Escolha um ponto dentro dos limites de ${profile.name}/${profile.state}.`);
+      return;
+    }
+
+    if (positionDraft.returnMode === 'edit') {
+      setPositionDraft(null);
+      setClientPanelMode('edit');
+      setToast('Coordenadas escolhidas. Revise os dados e salve o cliente.');
+      return;
+    }
+
+    const wasLocated = selected.lat !== undefined && selected.lng !== undefined;
+    setClients((current) => current.map((client) => client.id === selected.id ? {
+      ...client,
+      lat: positionDraft.lat,
+      lng: positionDraft.lng,
+      locationQuality: 'informada',
+      pendingReason: undefined,
+    } : client));
+    if (!wasLocated && selected.importBatchId) {
+      setHistory((current) => current.map((batch) => batch.id === selected.importBatchId ? {
+        ...batch,
+        mapped: batch.mapped + 1,
+        pending: Math.max(0, batch.pending - 1),
+      } : batch));
+    }
+    setPositionDraft(null);
+    setClientPanelMode('view');
+    setLocationFilter('Todos');
+    setToast(`${selected.name} foi reposicionado e salvo.`);
+  }
+
+  function clearReviewHold() {
+    if (reviewHoldTimerRef.current !== null) window.clearTimeout(reviewHoldTimerRef.current);
+    reviewHoldTimerRef.current = null;
+  }
+
+  function beginReviewHold(client: ClientRecord) {
+    const needsReview = client.lat === undefined || client.lng === undefined || Boolean(client.importIssues?.length);
+    if (!needsReview) return;
+    clearReviewHold();
+    reviewHoldTimerRef.current = window.setTimeout(() => {
+      suppressListClickRef.current = client.id;
+      navigator.vibrate?.(90);
+      startPositioning(client.id, 'view');
+    }, 1000);
+  }
+
+  function openClientFromList(client: ClientRecord) {
+    clearReviewHold();
+    if (suppressListClickRef.current === client.id) {
+      suppressListClickRef.current = null;
+      return;
+    }
+    handleMapSelect(client.id);
+    setView('mapa');
   }
 
   async function saveClient() {
@@ -1308,11 +1459,28 @@ export function FibraMapApp() {
             </div>
 
             <ClientMap
-              clients={visibleClients}
+              clients={mapClients}
               cityProfile={activeCityProfile}
               selectedId={selectedId}
+              positioningId={positionDraft?.clientId ?? null}
               onSelect={handleMapSelect}
+              onStartPositioning={handleStartPositioning}
+              onPositionChange={handlePositionChange}
+              onMarkerAnchorChange={handleMarkerAnchorChange}
             />
+
+            {positionDraft && selected && (
+              <div className="map-position-toolbar" role="dialog" aria-label="Confirmar posição do cliente">
+                <span className="position-pulse" aria-hidden="true" />
+                <div>
+                  <b>Posicionando {selected.name}</b>
+                  <small>Arraste o pin ou toque no ponto exato do imóvel.</small>
+                  <code>{positionDraft.lat.toFixed(7)}, {positionDraft.lng.toFixed(7)}</code>
+                </div>
+                <button className="position-cancel" onClick={cancelPositioning}><X size={16} />Cancelar</button>
+                <button className="position-confirm" onClick={confirmPositioning}><CheckCircle2 size={16} />Confirmar local</button>
+              </div>
+            )}
 
             {clientPanelMode && (selected || clientPanelMode === 'create') && (
               <ClientPanel
@@ -1322,12 +1490,14 @@ export function FibraMapApp() {
                 cities={cities}
                 busy={clientEditorBusy}
                 error={clientEditorError}
+                anchor={clientPanelMode === 'view' ? clientBubbleAnchor : null}
                 onChange={updateClientDraft}
                 onClose={closeClientPanel}
                 onEdit={openClientEditor}
                 onCancel={cancelClientEditor}
                 onSave={() => void saveClient()}
                 onRelocate={() => void relocateSelectedClient()}
+                onChooseOnMap={() => selected && startPositioning(selected.id, 'edit')}
               />
             )}
 
@@ -1365,7 +1535,17 @@ export function FibraMapApp() {
                 <thead><tr><th>Cliente</th><th>Endereço</th><th>Contato</th><th>Plano</th><th>Status</th><th>Localização</th></tr></thead>
                 <tbody>
                   {visibleClients.map((client) => (
-                    <tr key={client.id} onClick={() => { handleMapSelect(client.id); setView('mapa'); }}>
+                    <tr
+                      key={client.id}
+                      onPointerDown={() => beginReviewHold(client)}
+                      onPointerUp={clearReviewHold}
+                      onPointerLeave={clearReviewHold}
+                      onPointerCancel={clearReviewHold}
+                      onContextMenu={(event) => {
+                        if (client.lat === undefined || client.lng === undefined || client.importIssues?.length) event.preventDefault();
+                      }}
+                      onClick={() => openClientFromList(client)}
+                    >
                       <td><b>{client.name}</b><small>{client.externalId ?? client.id}{client.importRowNumber ? ` · linha ${client.importRowNumber}` : ''}</small></td>
                       <td>{client.street ? `${client.street}, ${client.number}` : 'Não informado'}</td>
                       <td>{client.phone || client.email || '—'}</td>
@@ -1380,7 +1560,18 @@ export function FibraMapApp() {
             </div>
             <div className="mobile-client-list">
               {visibleClients.map((client) => (
-                <button className="mobile-client-card" key={`card-${client.id}`} onClick={() => { handleMapSelect(client.id); setView('mapa'); }}>
+                <button
+                  className="mobile-client-card"
+                  key={`card-${client.id}`}
+                  onPointerDown={() => beginReviewHold(client)}
+                  onPointerUp={clearReviewHold}
+                  onPointerLeave={clearReviewHold}
+                  onPointerCancel={clearReviewHold}
+                  onContextMenu={(event) => {
+                    if (client.lat === undefined || client.lng === undefined || client.importIssues?.length) event.preventDefault();
+                  }}
+                  onClick={() => openClientFromList(client)}
+                >
                   <span className="mobile-client-card-top">
                     <span className="mobile-client-avatar">{client.name.slice(0, 2).toUpperCase()}</span>
                     <span className="mobile-client-name"><b>{client.name}</b><small>{client.externalId ?? client.id} · {client.plan}</small></span>
