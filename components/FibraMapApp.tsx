@@ -1081,6 +1081,39 @@ export function FibraMapApp() {
       </aside>
 
       <section className="content-stage">
+        <div className="mobile-context-bar">
+          <label className="mobile-city-picker">
+            <span className="mobile-city-icon"><MapPin size={16} /></span>
+            <span><small>Cidade ativa</small><b>{city}/{activeCityProfile?.state ?? PARANA_STATE}</b></span>
+            <ChevronDown size={16} />
+            <select
+              aria-label="Selecionar cidade"
+              value={city}
+              onChange={(event) => {
+                setCity(event.target.value);
+                setSelectedId(null);
+                setStatus('Todos');
+                setPlan('Todos');
+                setClientPanelMode(null);
+                setView('mapa');
+              }}
+            >
+              {cities.map((item) => <option key={`mobile-${item.name}-${item.state}`} value={item.name}>{item.name}/{item.state}</option>)}
+            </select>
+          </label>
+          <button
+            className="mobile-city-add"
+            aria-label="Cadastrar cidade"
+            onClick={() => {
+              setCityError('');
+              setNewCity('');
+              setSelectedMunicipalityId(null);
+              setCitySuggestionsOpen(false);
+              setCityOpen(true);
+            }}
+          ><Plus size={18} /></button>
+        </div>
+
         {view === 'mapa' && (
           <>
             <div className="map-toolbar">
@@ -1133,6 +1166,11 @@ export function FibraMapApp() {
               <span><i className="dot alert-dot" />Atenção</span>
               <span><i className="dot inactive-dot" />Inativo</span>
             </div>
+
+            <div className="mobile-action-dock" aria-label="Ações rápidas">
+              <button className="mobile-import-action" onClick={openImporter} aria-label="Importar planilha"><Upload size={19} /></button>
+              <button className="mobile-primary-action" onClick={openNewClient}><Plus size={21} /><span>Novo cliente</span></button>
+            </div>
           </>
         )}
 
@@ -1162,6 +1200,22 @@ export function FibraMapApp() {
                 </tbody>
               </table>
               {!visibleClients.length && <div className="empty-table">Nenhum cliente corresponde aos filtros.</div>}
+            </div>
+            <div className="mobile-client-list">
+              {visibleClients.map((client) => (
+                <button className="mobile-client-card" key={`card-${client.id}`} onClick={() => { handleMapSelect(client.id); setView('mapa'); }}>
+                  <span className="mobile-client-card-top">
+                    <span className="mobile-client-avatar">{client.name.slice(0, 2).toUpperCase()}</span>
+                    <span className="mobile-client-name"><b>{client.name}</b><small>{client.id} · {client.plan}</small></span>
+                    <span className="mobile-card-status" style={{ color: STATUS_COLORS[client.status] }}><i style={{ background: STATUS_COLORS[client.status] }} />{client.status}</span>
+                  </span>
+                  <span className="mobile-client-address"><MapPin size={15} />{client.street ? `${client.street}, ${client.number}` : 'Endereço não informado'}</span>
+                  <span className={client.lat !== undefined ? 'mobile-location-ready' : 'mobile-location-pending'}>
+                    {client.lat !== undefined ? <><CheckCircle2 size={14} />Localizado no mapa</> : <><Clock3 size={14} />Requer revisão</>}
+                  </span>
+                </button>
+              ))}
+              {!visibleClients.length && <div className="mobile-empty-list">Nenhum cliente corresponde aos filtros.</div>}
             </div>
           </section>
         )}

@@ -108,6 +108,7 @@ export function ClientPanel({
 
   return (
     <aside className="client-panel" aria-label={mode === 'create' ? 'Cadastrar cliente' : 'Detalhes do cliente'}>
+      <div className="mobile-sheet-handle" aria-hidden="true"><span /></div>
       <header className="client-panel-header">
         <div className="client-panel-title">
           <span className="client-avatar" aria-hidden="true">
