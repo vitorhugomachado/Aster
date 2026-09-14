@@ -9,7 +9,8 @@
     "dev": "vinext dev",
     "build": "vinext build",
     "start": "vinext start",
-    "lint": "eslint . --ignore-pattern dist --ignore-pattern .next"
+    "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
+    "test": "vitest run"
   },
   "dependencies": {
     "@googlemaps/js-api-loader": "^2.1.1",
@@ -18,11 +19,13 @@
     "@types/papaparse": "^5.5.2",
     "clsx": "^2.1.1",
     "fflate": "^0.8.3",
+    "h3-js": "^4.5.0",
     "leaflet": "^1.9.4",
     "lucide-react": "^1.45.0",
     "motion": "^13.2.0",
     "next": "^16.3.5",
     "papaparse": "^5.7.0",
+    "postgres": "^3.4.9",
     "react": "19.2.6",
     "react-dom": "19.2.6",
     "read-excel-file": "^9.3.10",
@@ -45,6 +48,7 @@
     "typescript": "5.9.3",
     "vinext": "1.0.0-beta.3",
     "vite": "8.0.13",
+    "vitest": "^5.0.0",
     "wrangler": "4.92.0"
   },
   "type": "module"

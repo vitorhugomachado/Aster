@@ -27,62 +27,6 @@ const STARTERS = [
   'Quais planos aparecem mais na base?',
 ];
 
-function buildContext(
-  city: CityProfile | null,
-  clients: ClientRecord[],
-  groups: RuralClientGroup[],
-  imports: ImportBatch[],
-) {
-  const groupByClient = new Map<string, RuralClientGroup>();
-  groups.forEach((group) => group.clientIds.forEach((clientId) => groupByClient.set(clientId, group)));
-  return {
-    city: { name: city?.name ?? '', state: city?.state ?? '' },
-    clients: clients.map((client) => {
-      const ruralGroup = groupByClient.get(client.id);
-      return {
-      id: client.externalId ?? client.id,
-      name: client.name,
-      address: [client.street, client.number, client.complement, client.neighborhood, client.city, client.state, client.zip]
-        .filter(Boolean).join(', '),
-      status: client.status,
-      plan: client.plan,
-      phone: client.phone ?? '',
-      email: client.email ?? '',
-      contract: client.contract ?? '',
-      customerType: client.customerType ?? '',
-      registeredAt: client.registeredAt ?? '',
-      location: client.lat !== undefined && client.lng !== undefined
-        ? { status: client.locationQuality, lat: client.lat, lng: client.lng }
-        : ruralGroup
-          ? { status: 'grupo rural', lat: ruralGroup.lat, lng: ruralGroup.lng }
-          : { status: 'sem localização' },
-      reviewReason: ruralGroup
-        ? ''
-        : client.importIssues?.join(' · ') || client.pendingReason || '',
-      ruralGroup: ruralGroup?.name ?? '',
-      importId: client.importBatchId ?? '',
-      };
-    }),
-    groups: groups.map((group) => ({
-      id: group.id,
-      name: group.name,
-      clientCount: group.clientIds.length,
-      clientIds: group.clientIds,
-      location: { lat: group.lat, lng: group.lng },
-    })),
-    imports: imports.map((batch) => ({
-      id: batch.id,
-      name: batch.name,
-      fileName: batch.fileName,
-      importedAt: batch.importedAt.toISOString(),
-      total: batch.total,
-      mapped: batch.mapped,
-      pending: batch.pending,
-      rejected: batch.rejected,
-    })),
-  };
-}
-
 export function AsterAssistant({ open, city, clients, groups, imports, onClose }: AsterAssistantProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [draft, setDraft] = useState('');
@@ -115,7 +59,7 @@ export function AsterAssistant({ open, city, clients, groups, imports, onClose }
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           messages: nextMessages.map(({ role, content: text }) => ({ role, content: text })),
-          context: buildContext(city, clients, groups, imports),
+          city: { name: city?.name ?? '', state: city?.state ?? '' },
         }),
       });
       const result = await response.json().catch(() => ({})) as { answer?: string; message?: string };

@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { suggestCnefeStreets } from '../../data/cnefe';
 import { GeminiServiceError, generateWithGemini } from '../../lib/gemini';
+import { currentUser } from '../../lib/auth';
+import { consumeUsage, databaseConfigured } from '../../lib/db';
 
 interface AddressPayload {
   street?: string;
@@ -57,6 +59,11 @@ export async function POST(request: Request) {
       status: 429,
       headers: { 'Cache-Control': 'no-store', 'Retry-After': '60' },
     });
+  }
+  if (databaseConfigured()) {
+    const user = await currentUser(request);
+    if (!user) return NextResponse.json({ message: 'Entre novamente para revisar endereços.' }, { status: 401 });
+    if (!(await consumeUsage(user.id, 'address-suggestion', 180))) return NextResponse.json({ message: 'Limite de revisões atingido. Aguarde um minuto.' }, { status: 429 });
   }
 
   let payload: AddressPayload;

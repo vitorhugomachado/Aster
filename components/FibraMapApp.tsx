@@ -20,12 +20,14 @@ import {
   CheckCircle2,
   ChevronDown,
   Clock3,
+  Cloud,
   Download,
   FileSpreadsheet,
   FileUp,
   History,
   List,
   LoaderCircle,
+  LogOut,
   MapPin,
   MapPinned,
   Pencil,
@@ -33,6 +35,7 @@ import {
   RefreshCcw,
   Search,
   Sparkles,
+  Target,
   ShieldCheck,
   SlidersHorizontal,
   Trash2,
@@ -44,6 +47,7 @@ import { ClientMap } from './ClientMap';
 import { AsterAssistant } from './AsterAssistant';
 import { ClientDraft, ClientPanel, ClientPanelMode } from './ClientPanel';
 import { RuralGroupDraft, RuralGroupsModal } from './RuralGroupsModal';
+import { OpportunityWorkspace } from './OpportunityWorkspace';
 import { ContinuousTabs } from './continuous-tabs';
 import { CommandSearch, type CommandItem } from './command-search';
 import { FloatingInput } from './floating-input';
@@ -74,7 +78,7 @@ import {
   normalizeText,
 } from './client-data';
 
-type ViewName = 'mapa' | 'lista' | 'importacoes';
+type ViewName = 'mapa' | 'oportunidades' | 'lista' | 'importacoes';
 type LocationFilter = 'Todos' | 'Mapeados' | 'Revisar';
 
 interface ImportPreview {
@@ -244,7 +248,12 @@ function draftFromClient(client: ClientRecord): ClientDraft {
   };
 }
 
-export function FibraMapApp() {
+interface FibraMapAppProps {
+  cloudEnabled?: boolean;
+  currentUser?: { id: string; email: string; name: string };
+}
+
+export function FibraMapApp({ cloudEnabled = false, currentUser }: FibraMapAppProps) {
   const [clients, setClients] = useState<ClientRecord[]>(DEMO_CLIENTS);
   const [view, setView] = useState<ViewName>('mapa');
   const [query, setQuery] = useState('');
@@ -282,6 +291,8 @@ export function FibraMapApp() {
   const [batchEditorId, setBatchEditorId] = useState<string | null>(null);
   const [batchNameDraft, setBatchNameDraft] = useState('');
   const [storageReady, setStorageReady] = useState(false);
+  const [cloudReady, setCloudReady] = useState(!cloudEnabled);
+  const [cloudStatus, setCloudStatus] = useState<'local' | 'syncing' | 'synced' | 'error'>(cloudEnabled ? 'syncing' : 'local');
   const [toast, setToast] = useState('');
   const [clientPanelMode, setClientPanelMode] = useState<ClientPanelMode | null>('view');
   const [clientDraft, setClientDraft] = useState<ClientDraft>(() => blankClientDraft(DEFAULT_CITY_PROFILE));
@@ -695,44 +706,50 @@ export function FibraMapApp() {
     if (!storageReady) return;
     const groupedClientIds = new Set(ruralGroups.flatMap((group) => group.clientIds));
     if (!groupedClientIds.size) return;
-    setClients((current) => {
-      let changed = false;
-      const normalized = current.map((client) => {
-        if (!groupedClientIds.has(client.id)) return client;
-        if (client.status !== 'Pendente' && !client.pendingReason && !client.importIssues?.length
-          && client.locationQuality !== 'pendente') return client;
-        changed = true;
-        return withResolvedLocation(client, {
-          locationQuality: client.lat !== undefined && client.lng !== undefined
-            ? client.locationQuality
-            : 'informada',
+    const timer = window.setTimeout(() => {
+      setClients((current) => {
+        let changed = false;
+        const normalized = current.map((client) => {
+          if (!groupedClientIds.has(client.id)) return client;
+          if (client.status !== 'Pendente' && !client.pendingReason && !client.importIssues?.length
+            && client.locationQuality !== 'pendente') return client;
+          changed = true;
+          return withResolvedLocation(client, {
+            locationQuality: client.lat !== undefined && client.lng !== undefined
+              ? client.locationQuality
+              : 'informada',
+          });
         });
+        return changed ? normalized : current;
       });
-      return changed ? normalized : current;
-    });
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, [ruralGroups, storageReady]);
 
   useEffect(() => {
     if (!storageReady) return;
     const groupedClientIds = new Set(ruralGroups.flatMap((group) => group.clientIds));
-    setHistory((current) => {
-      let changed = false;
-      const synchronized = current.map((batch) => {
-        const records = clients.filter((client) => client.importBatchId === batch.id);
-        const mapped = records.filter((client) => (
-          (client.lat !== undefined && client.lng !== undefined) || groupedClientIds.has(client.id)
-        )).length;
-        const pending = records.length - mapped;
-        const rejected = records.filter((client) => (
-          !groupedClientIds.has(client.id) && Boolean(client.importIssues?.length)
-        )).length;
-        if (batch.total === records.length && batch.mapped === mapped
-          && batch.pending === pending && batch.rejected === rejected) return batch;
-        changed = true;
-        return { ...batch, total: records.length, mapped, pending, rejected };
+    const timer = window.setTimeout(() => {
+      setHistory((current) => {
+        let changed = false;
+        const synchronized = current.map((batch) => {
+          const records = clients.filter((client) => client.importBatchId === batch.id);
+          const mapped = records.filter((client) => (
+            (client.lat !== undefined && client.lng !== undefined) || groupedClientIds.has(client.id)
+          )).length;
+          const pending = records.length - mapped;
+          const rejected = records.filter((client) => (
+            !groupedClientIds.has(client.id) && Boolean(client.importIssues?.length)
+          )).length;
+          if (batch.total === records.length && batch.mapped === mapped
+            && batch.pending === pending && batch.rejected === rejected) return batch;
+          changed = true;
+          return { ...batch, total: records.length, mapped, pending, rejected };
+        });
+        return changed ? synchronized : current;
       });
-      return changed ? synchronized : current;
-    });
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, [clients, ruralGroups, storageReady]);
 
   useEffect(() => {
@@ -749,6 +766,72 @@ export function FibraMapApp() {
       // Browsers can disable or limit local storage. The live session remains usable.
     }
   }, [city, cityProfiles, clients, history, ruralGroups, storageReady]);
+
+  useEffect(() => {
+    if (!cloudEnabled || !storageReady || cloudReady) return;
+    let cancelled = false;
+    async function hydrateCloud() {
+      setCloudStatus('syncing');
+      try {
+        const response = await fetch('/api/workspace', { cache: 'no-store' });
+        if (!response.ok) throw new Error('cloud unavailable');
+        const workspace = await response.json() as {
+          clients?: ClientRecord[];
+          cityProfiles?: CityProfile[];
+          history?: Array<Omit<ImportBatch, 'importedAt'> & { importedAt: string }>;
+          ruralGroups?: RuralClientGroup[];
+        };
+        if (cancelled) return;
+        const hasCloudData = Boolean(workspace.clients?.length || workspace.cityProfiles?.length || workspace.history?.length || workspace.ruralGroups?.length);
+        if (hasCloudData) {
+          const cloudHistory = (workspace.history ?? []).map((batch) => ({ ...batch, importedAt: new Date(batch.importedAt) }));
+          setClients(workspace.clients?.length ? workspace.clients : []);
+          setCityProfiles(workspace.cityProfiles?.length ? workspace.cityProfiles : [DEFAULT_CITY_PROFILE]);
+          setHistory(cloudHistory);
+          setRuralGroups(workspace.ruralGroups ?? []);
+          const firstCity = workspace.cityProfiles?.[0]?.name;
+          if (firstCity && !(workspace.cityProfiles ?? []).some((profile) => normalizeKey(profile.name) === normalizeKey(city))) setCity(firstCity);
+        } else {
+          const meaningfulLocalData = clients.some((client) => client.source !== 'demo') || history.length > 0 || ruralGroups.length > 0;
+          if (meaningfulLocalData) {
+            const migration = await fetch('/api/workspace', {
+              method: 'PUT', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ clients, cityProfiles, city, history, ruralGroups, sync: true }),
+            });
+            if (!migration.ok) throw new Error('migration failed');
+            window.localStorage.setItem(`${STORAGE_KEY}:cloud-migrated`, new Date().toISOString());
+          }
+        }
+        setCloudStatus('synced');
+      } catch {
+        if (!cancelled) setCloudStatus('error');
+      } finally {
+        if (!cancelled) setCloudReady(true);
+      }
+    }
+    void hydrateCloud();
+    return () => { cancelled = true; };
+  }, [city, cityProfiles, clients, cloudEnabled, cloudReady, history, ruralGroups, storageReady]);
+
+  useEffect(() => {
+    if (!cloudEnabled || !cloudReady || !storageReady) return;
+    const timer = window.setTimeout(async () => {
+      setCloudStatus('syncing');
+      try {
+        const response = await fetch('/api/workspace', {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ clients, cityProfiles, city, history, ruralGroups, sync: true }),
+        });
+        setCloudStatus(response.ok ? 'synced' : 'error');
+      } catch { setCloudStatus('error'); }
+    }, 1400);
+    return () => window.clearTimeout(timer);
+  }, [city, cityProfiles, clients, cloudEnabled, cloudReady, history, ruralGroups, storageReady]);
+
+  async function logout() {
+    await fetch('/api/auth/session', { method: 'DELETE' }).catch(() => undefined);
+    window.location.reload();
+  }
 
   function openRuralGroups() {
     if (!activeCityProfile?.center) {
@@ -1009,6 +1092,32 @@ export function FibraMapApp() {
     link.download = 'modelo-clientes-fibra.csv';
     link.click();
     URL.revokeObjectURL(url);
+  }
+
+  async function downloadWorkspaceBackup() {
+    try {
+      let blob: Blob;
+      if (cloudEnabled) {
+        const response = await fetch('/api/export?format=json', { cache: 'no-store' });
+        if (!response.ok) throw new Error('Não foi possível preparar o backup.');
+        blob = await response.blob();
+      } else {
+        let leads: unknown[] = [];
+        try { leads = JSON.parse(localStorage.getItem('aster:leads:v1') || '[]') as unknown[]; } catch { leads = []; }
+        blob = new Blob([JSON.stringify({
+          exportedAt: new Date().toISOString(), clients, cities: cityProfiles, imports: history, groups: ruralGroups, leads,
+        }, null, 2)], { type: 'application/json;charset=utf-8' });
+      }
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `aster-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+      setToast('Backup completo exportado com sucesso.');
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : 'Não foi possível exportar o backup.');
+    }
   }
 
   async function matrixFromFile(file: File): Promise<unknown[][]> {
@@ -1864,12 +1973,14 @@ export function FibraMapApp() {
   const previewTotal = importPreview?.rows.length ?? 0;
   const commandItems: CommandItem[] = [
     { id: 'open-map', title: 'Abrir mapa de clientes', section: 'Navegação', icon: <MapPinned size={16} />, shortcut: 'M', action: () => setView('mapa') },
+    { id: 'open-opportunities', title: 'Abrir mapa de oportunidades', section: 'Navegação', icon: <Target size={16} />, shortcut: 'O', action: () => setView('oportunidades') },
     { id: 'open-list', title: 'Abrir lista de clientes', section: 'Navegação', icon: <List size={16} />, shortcut: 'L', action: () => setView('lista') },
     { id: 'open-imports', title: 'Abrir histórico de importações', section: 'Navegação', icon: <History size={16} />, action: () => setView('importacoes') },
     { id: 'new-client', title: 'Adicionar novo cliente', section: 'Ações', icon: <Plus size={16} />, action: openNewClient },
     { id: 'new-import', title: 'Importar planilha', section: 'Ações', icon: <Upload size={16} />, action: openImporter },
     { id: 'rural-groups', title: 'Gerenciar grupos rurais', section: 'Ações', icon: <UsersRound size={16} />, action: openRuralGroups },
     { id: 'aster-ai', title: 'Conversar com o Aster IA', section: 'Ações', icon: <Sparkles size={16} />, action: () => setAssistantOpen(true) },
+    { id: 'export-workspace', title: 'Exportar backup completo', section: 'Ações', icon: <Download size={16} />, action: () => void downloadWorkspaceBackup() },
     ...cityClients.slice(0, 60).map((client): CommandItem => ({
       id: `client-${client.id}`,
       title: `${client.name} · ${client.street || 'endereço não informado'}, ${client.number || 's/n'}`,
@@ -1899,9 +2010,16 @@ export function FibraMapApp() {
         <div className="top-actions">
           <WatermelonButton className="assistant-trigger" onClick={() => setAssistantOpen(true)}><Sparkles size={15} />Aster IA</WatermelonButton>
           <Link className="design-system-link" href="/design-system">Sistema visual</Link>
-          <span className="demo-badge">Dados neste dispositivo</span>
+          <span className={`demo-badge cloud-${cloudStatus}`} title={cloudStatus === 'error' ? 'A cópia local continua protegendo a sessão' : undefined}>
+            {cloudEnabled ? <Cloud size={12} /> : null}{cloudStatus === 'syncing' ? 'Salvando…' : cloudStatus === 'synced' ? 'Nuvem sincronizada' : cloudStatus === 'error' ? 'Cópia local ativa' : 'Neste dispositivo'}
+          </span>
+          <WatermelonButton className="icon-button" aria-label="Exportar backup completo" title="Exportar backup completo" onClick={() => void downloadWorkspaceBackup()}><Download size={16} /></WatermelonButton>
           <WatermelonButton className="icon-button" aria-label="Notificações"><Bell size={16} /></WatermelonButton>
-          <WatermelonButton className="profile-button"><span>SC</span><span className="profile-name">Stefani<br /><small>Comercial</small></span></WatermelonButton>
+          <WatermelonButton className="profile-button" onClick={() => void logout()} title="Sair do Aster">
+            <span>{(currentUser?.name || 'Stefani').slice(0, 2).toUpperCase()}</span>
+            <span className="profile-name">{currentUser?.name || 'Stefani'}<br /><small>{cloudEnabled ? 'Conta protegida' : 'Modo local'}</small></span>
+            {cloudEnabled && <LogOut size={14} />}
+          </WatermelonButton>
         </div>
       </header>
 
@@ -1944,6 +2062,7 @@ export function FibraMapApp() {
 
         <nav className="nav-list" aria-label="Navegação principal">
           <WatermelonButton className={view === 'mapa' ? 'active' : ''} onClick={() => setView('mapa')}><MapPinned size={18} />Mapa de clientes</WatermelonButton>
+          <WatermelonButton className={view === 'oportunidades' ? 'active' : ''} onClick={() => setView('oportunidades')}><Target size={18} />Oportunidades</WatermelonButton>
           <WatermelonButton className={view === 'lista' ? 'active' : ''} onClick={() => setView('lista')}><List size={18} />Lista de clientes</WatermelonButton>
           <WatermelonButton className={view === 'importacoes' ? 'active' : ''} onClick={() => setView('importacoes')}><History size={18} />Importações</WatermelonButton>
         </nav>
@@ -2000,6 +2119,18 @@ export function FibraMapApp() {
           ><Plus size={18} /></WatermelonButton>
           <WatermelonButton className="mobile-assistant-trigger" onClick={() => setAssistantOpen(true)} aria-label="Abrir Aster IA"><Sparkles size={18} /></WatermelonButton>
         </div>
+
+        {view === 'oportunidades' && (
+          <OpportunityWorkspace
+            cityProfile={activeCityProfile}
+            clients={cityClients}
+            cloudEnabled={cloudEnabled}
+            onClientConverted={(client) => {
+              setClients((current) => current.some((item) => item.id === client.id) ? current : [...current.filter((item) => item.source !== 'demo'), client]);
+              setToast(`${client.name} foi adicionado à base de clientes.`);
+            }}
+          />
+        )}
 
         {view === 'mapa' && (
           <>

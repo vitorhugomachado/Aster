@@ -16,7 +16,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   metadataBase: new URL('https://web-production-684d7.up.railway.app'),
   title: 'aster — Inteligência comercial em cada endereço',
-  description: 'Mapeie clientes de fibra por endereço, cidade e status operacional com precisão.',
+  description: 'CRM geográfico para mapear clientes, priorizar oportunidades e planejar visitas comerciais.',
   applicationName: 'aster',
   icons: {
     icon: '/brand/aster-client-pin.png',
@@ -27,7 +27,7 @@ export const metadata: Metadata = {
   },
   openGraph: {
     title: 'aster',
-    description: 'Inteligência comercial em cada endereço.',
+    description: 'Clientes, oportunidades e rotas comerciais em um único mapa.',
     type: 'website',
     url: 'https://web-production-684d7.up.railway.app',
     images: [{
@@ -40,7 +40,7 @@ export const metadata: Metadata = {
   twitter: {
     card: 'summary_large_image',
     title: 'aster',
-    description: 'Inteligência comercial em cada endereço.',
+    description: 'Clientes, oportunidades e rotas comerciais em um único mapa.',
     images: ['https://web-production-684d7.up.railway.app/og.png'],
   },
 };

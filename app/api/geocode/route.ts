@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { lookupCnefeAddress } from '../../data/cnefe';
 import { findMunicipality, findMunicipalityByName } from '../../data/municipalities';
+import { currentUser } from '../../lib/auth';
+import { consumeUsage, databaseConfigured } from '../../lib/db';
 
 interface GeocodePayload {
   street?: string;
@@ -196,6 +198,11 @@ export async function POST(request: Request) {
       { code: 'rate_limited', message: 'Muitas consultas. Aguarde um minuto.' },
       { status: 429, headers: { 'Cache-Control': 'no-store', 'Retry-After': '60' } },
     );
+  }
+  if (databaseConfigured()) {
+    const user = await currentUser(request);
+    if (!user) return NextResponse.json({ message: 'Entre novamente para localizar endereços.' }, { status: 401 });
+    if (!(await consumeUsage(user.id, 'geocode', 600))) return NextResponse.json({ code: 'rate_limited', message: 'Limite de localização atingido. Aguarde um minuto.' }, { status: 429 });
   }
 
   let payload: GeocodePayload;

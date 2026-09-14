@@ -18,6 +18,8 @@ interface ClientMapProps {
   onMarkerPressStart: (id: string) => void;
   onMarkerRelease: (id: string) => void;
   onMarkerAnchorChange: (anchor: { x: number; y: number } | null) => void;
+  routePath?: Array<{ lat: number; lng: number }>;
+  opportunityZones?: Array<{ id: string; boundary: Array<{ lat: number; lng: number }>; intensity: number; label: string }>;
 }
 
 type MapProvider = 'loading' | 'google' | 'demo' | 'google-error';
@@ -49,11 +51,13 @@ export function ClientMap({
   onMarkerPressStart,
   onMarkerRelease,
   onMarkerAnchorChange,
+  routePath = [],
+  opportunityZones = [],
 }: ClientMapProps) {
   const frameRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const googleMapRef = useRef<google.maps.Map | null>(null);
-  const googleOverlaysRef = useRef<Array<google.maps.Polygon | google.maps.Marker>>([]);
+  const googleOverlaysRef = useRef<Array<google.maps.Polygon | google.maps.Polyline | google.maps.Marker>>([]);
   const googleAnchorOverlayRef = useRef<google.maps.OverlayView | null>(null);
   const googlePositionListenerRef = useRef<google.maps.MapsEventListener | null>(null);
   const googleCityKeyRef = useRef('');
@@ -249,6 +253,34 @@ export function ClientMap({
       googleOverlaysRef.current.push(boundary);
     }
 
+    opportunityZones.forEach((zone) => {
+      const polygon = new google.maps.Polygon({
+        map,
+        paths: zone.boundary,
+        clickable: false,
+        strokeColor: '#5b3df5',
+        strokeOpacity: Math.min(.82, .32 + zone.intensity * .08),
+        strokeWeight: 1,
+        fillColor: '#765fff',
+        fillOpacity: Math.min(.28, .05 + zone.intensity * .035),
+        zIndex: 2,
+      });
+      googleOverlaysRef.current.push(polygon);
+    });
+
+    if (routePath.length >= 2) {
+      const route = new google.maps.Polyline({
+        map,
+        path: routePath,
+        clickable: false,
+        strokeColor: '#17161b',
+        strokeOpacity: .88,
+        strokeWeight: 5,
+        zIndex: 5,
+      });
+      googleOverlaysRef.current.push(route);
+    }
+
     const located = clients.filter(
       (client): client is ClientRecord & { lat: number; lng: number } =>
         Number.isFinite(client.lat) && Number.isFinite(client.lng),
@@ -260,8 +292,9 @@ export function ClientMap({
       const isSelected = client.id === selectedId;
       const isPositioning = client.id === positioningId;
       const isGroup = client.mapKind === 'group';
+      const isLead = client.mapKind === 'lead';
 
-      const markerSize = isGroup ? (isSelected ? 40 : 34) : (isSelected ? 24 : 18);
+      const markerSize = isGroup ? (isSelected ? 40 : 34) : isLead ? (isSelected ? 24 : 18) : (isSelected ? 24 : 18);
       const marker = new google.maps.Marker({
         map,
         position: center,
@@ -269,7 +302,14 @@ export function ClientMap({
         title: isGroup
           ? `${client.name} · ${client.groupCount ?? 0} clientes`
           : `${client.name} · ${client.status}`,
-        icon: {
+        icon: isLead ? {
+          path: google.maps.SymbolPath.CIRCLE,
+          fillColor: client.markerColor || '#5b3df5',
+          fillOpacity: 1,
+          strokeColor: '#ffffff',
+          strokeWeight: isSelected ? 4 : 3,
+          scale: isSelected ? 10 : 7,
+        } : {
           url: '/brand/aster-client-pin.png',
           scaledSize: new google.maps.Size(markerSize, markerSize),
           anchor: new google.maps.Point(markerSize / 2, markerSize - 3),
@@ -338,7 +378,7 @@ export function ClientMap({
           if (point) onPositionChange(positioningId, point.lat(), point.lng());
         })
       : null;
-  }, [beginPress, cityProfile, clearHold, clients, finishPress, onPositionChange, onSelect, positioningId, provider, selectedId]);
+  }, [beginPress, cityProfile, clearHold, clients, finishPress, onPositionChange, onSelect, opportunityZones, positioningId, provider, routePath, selectedId]);
 
   useEffect(() => {
     const L = leafletRef.current;
@@ -352,6 +392,16 @@ export function ClientMap({
     leafletSelectedRef.current = selectedId;
 
     layer.clearLayers();
+
+    opportunityZones.forEach((zone) => {
+      L.polygon(zone.boundary.map((point) => [point.lat, point.lng]), {
+        color: '#5b3df5', weight: 1, opacity: Math.min(.82, .32 + zone.intensity * .08),
+        fillColor: '#765fff', fillOpacity: Math.min(.28, .05 + zone.intensity * .035), interactive: false,
+      }).addTo(layer);
+    });
+    if (routePath.length >= 2) {
+      L.polyline(routePath.map((point) => [point.lat, point.lng]), { color: '#17161b', weight: 5, opacity: .88, interactive: false }).addTo(layer);
+    }
     const located = clients.filter(
       (client): client is ClientRecord & { lat: number; lng: number } =>
         Number.isFinite(client.lat) && Number.isFinite(client.lng),
@@ -361,6 +411,7 @@ export function ClientMap({
       const isSelected = client.id === selectedId;
       const isPositioning = client.id === positioningId;
       const isGroup = client.mapKind === 'group';
+      const isLead = client.mapKind === 'lead';
       const markerSize = isGroup ? (isSelected ? 40 : 34) : (isSelected ? 24 : 18);
       const marker = L.marker([client.lat, client.lng], {
         icon: isGroup
@@ -370,7 +421,12 @@ export function ClientMap({
               iconSize: [markerSize, markerSize],
               iconAnchor: [markerSize / 2, markerSize - 3],
             })
-          : L.icon({
+          : isLead ? L.divIcon({
+              className: 'aster-lead-marker',
+              html: `<span style="background:${client.markerColor || '#5b3df5'}"></span>`,
+              iconSize: [markerSize, markerSize],
+              iconAnchor: [markerSize / 2, markerSize / 2],
+            }) : L.icon({
               iconUrl: '/brand/aster-client-pin.png',
               iconSize: [markerSize, markerSize],
               iconAnchor: [markerSize / 2, markerSize - 3],
@@ -448,7 +504,7 @@ export function ClientMap({
     } else {
       leafletPositionHandlerRef.current = null;
     }
-  }, [beginPress, cityProfile, clearHold, clients, finishPress, onPositionChange, onSelect, positioningId, provider, selectedId]);
+  }, [beginPress, cityProfile, clearHold, clients, finishPress, onPositionChange, onSelect, opportunityZones, positioningId, provider, routePath, selectedId]);
 
   useEffect(() => {
     const selectedClient = clients.find((client) => client.id === selectedId);

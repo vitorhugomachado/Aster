@@ -46,7 +46,8 @@ export interface ClientRecord {
   importBatchId?: string;
   importRowNumber?: number;
   importIssues?: string[];
-  mapKind?: 'client' | 'group';
+  mapKind?: 'client' | 'group' | 'lead';
+  markerColor?: string;
   groupCount?: number;
 }
 
