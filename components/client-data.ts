@@ -13,6 +13,7 @@ export interface CityProfile {
 
 export interface ClientRecord {
   id: string;
+  externalId?: string;
   name: string;
   street: string;
   number: string;
@@ -34,6 +35,9 @@ export interface ClientRecord {
   lng?: number;
   locationQuality: LocationQuality;
   source: 'demo' | 'importação' | 'manual';
+  importBatchId?: string;
+  importRowNumber?: number;
+  importIssues?: string[];
 }
 
 export interface ParsedClient extends ClientRecord {
@@ -44,12 +48,16 @@ export interface ParsedClient extends ClientRecord {
 
 export interface ImportBatch {
   id: string;
+  name: string;
   fileName: string;
+  city: string;
+  state: string;
   importedAt: Date;
   total: number;
   mapped: number;
   pending: number;
   rejected: number;
+  clientIds: string[];
 }
 
 export const STATUS_COLORS: Record<ClientStatus, string> = {

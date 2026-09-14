@@ -27,11 +27,13 @@ import {
   LoaderCircle,
   MapPin,
   MapPinned,
+  Pencil,
   Plus,
   RefreshCcw,
   Search,
   ShieldCheck,
   SlidersHorizontal,
+  Trash2,
   Upload,
   X,
 } from 'lucide-react';
@@ -54,6 +56,7 @@ import {
 } from './client-data';
 
 type ViewName = 'mapa' | 'lista' | 'importacoes';
+type LocationFilter = 'Todos' | 'Mapeados' | 'Revisar';
 
 interface ImportPreview {
   fileName: string;
@@ -98,6 +101,7 @@ function asNumber(value: unknown) {
 function recordFromParsed(row: ParsedClient): ClientRecord {
   return {
     id: row.id,
+    externalId: row.externalId,
     name: row.name,
     street: row.street,
     number: row.number,
@@ -119,6 +123,9 @@ function recordFromParsed(row: ParsedClient): ClientRecord {
     lng: row.lng,
     locationQuality: row.locationQuality,
     source: row.source,
+    importBatchId: row.importBatchId,
+    importRowNumber: row.importRowNumber,
+    importIssues: row.importIssues,
   };
 }
 
@@ -158,8 +165,8 @@ function blankClientDraft(profile: CityProfile | null): ClientDraft {
 
 function draftFromClient(client: ClientRecord): ClientDraft {
   return {
-    id: client.id,
-    name: client.name,
+    id: client.externalId ?? client.id,
+    name: client.importIssues?.includes('nome ausente') ? '' : client.name,
     street: client.street,
     number: client.number,
     complement: client.complement,
@@ -206,6 +213,10 @@ export function FibraMapApp() {
   const [importError, setImportError] = useState('');
   const [dragActive, setDragActive] = useState(false);
   const [history, setHistory] = useState<ImportBatch[]>([]);
+  const [activeBatchId, setActiveBatchId] = useState<'all' | string>('all');
+  const [locationFilter, setLocationFilter] = useState<LocationFilter>('Todos');
+  const [batchEditorId, setBatchEditorId] = useState<string | null>(null);
+  const [batchNameDraft, setBatchNameDraft] = useState('');
   const [storageReady, setStorageReady] = useState(false);
   const [toast, setToast] = useState('');
   const [clientPanelMode, setClientPanelMode] = useState<ClientPanelMode | null>('view');
@@ -250,13 +261,38 @@ export function FibraMapApp() {
     [city, clients],
   );
 
+  const cityHistory = useMemo(
+    () => history.filter((batch) => normalizeKey(batch.city) === normalizeKey(city)),
+    [city, history],
+  );
+
+  const activeBatch = useMemo(
+    () => activeBatchId === 'all' ? null : cityHistory.find((batch) => batch.id === activeBatchId) ?? null,
+    [activeBatchId, cityHistory],
+  );
+
+  const editingBatch = useMemo(
+    () => history.find((batch) => batch.id === batchEditorId) ?? null,
+    [batchEditorId, history],
+  );
+
+  const scopedCityClients = useMemo(
+    () => activeBatch ? cityClients.filter((client) => client.importBatchId === activeBatch.id) : cityClients,
+    [activeBatch, cityClients],
+  );
+
   const visibleClients = useMemo(() => {
     const search = normalizeKey(query);
-    return cityClients.filter((client) => {
+    return scopedCityClients.filter((client) => {
       const matchesStatus = status === 'Todos' || client.status === status;
       const matchesPlan = plan === 'Todos' || client.plan === plan;
+      const hasLocation = client.lat !== undefined && client.lng !== undefined;
+      const matchesLocation = locationFilter === 'Todos'
+        || (locationFilter === 'Mapeados' && hasLocation)
+        || (locationFilter === 'Revisar' && (!hasLocation || Boolean(client.importIssues?.length)));
       const haystack = normalizeKey([
         client.id,
+        client.externalId,
         client.name,
         client.street,
         client.number,
@@ -265,9 +301,9 @@ export function FibraMapApp() {
         client.zip,
         client.plan,
       ].join(' '));
-      return matchesStatus && matchesPlan && (!search || haystack.includes(search));
+      return matchesStatus && matchesPlan && matchesLocation && (!search || haystack.includes(search));
     });
-  }, [cityClients, plan, query, status]);
+  }, [locationFilter, plan, query, scopedCityClients, status]);
 
   const selected = cityClients.find((client) => client.id === selectedId) ?? null;
   const locatedCount = cityClients.filter((client) => client.lat !== undefined && client.lng !== undefined).length;
@@ -320,20 +356,43 @@ export function FibraMapApp() {
             city?: string;
             history?: Array<Omit<ImportBatch, 'importedAt'> & { importedAt: string }>;
           };
+          let normalizedHistory = Array.isArray(workspace.history)
+            ? workspace.history.map((batch) => ({
+              ...batch,
+              name: batch.name || batch.fileName,
+              city: batch.city || workspace.city || DEFAULT_CITY_PROFILE.name,
+              state: batch.state || PARANA_STATE,
+              clientIds: batch.clientIds || [],
+              importedAt: new Date(batch.importedAt),
+            }))
+            : [];
           if (Array.isArray(workspace.clients) && workspace.clients.length) {
-            setClients(workspace.clients);
-            setSelectedId(workspace.clients.find((client) => client.lat !== undefined)?.id ?? null);
+            const migratedIds = new Map<string, string[]>();
+            const loadedClients = workspace.clients.map((client, index) => {
+              if (client.source !== 'importação' || client.importBatchId) return client;
+              const batch = normalizedHistory.find((item) => normalizeKey(item.city) === normalizeKey(client.city));
+              if (!batch) return client;
+              const internalId = `${batch.id}:legacy:${index}`;
+              migratedIds.set(batch.id, [...(migratedIds.get(batch.id) ?? []), internalId]);
+              return {
+                ...client,
+                id: internalId,
+                externalId: client.id,
+                importBatchId: batch.id,
+              };
+            });
+            normalizedHistory = normalizedHistory.map((batch) => ({
+              ...batch,
+              clientIds: Array.from(new Set([...batch.clientIds, ...(migratedIds.get(batch.id) ?? [])])),
+            }));
+            setClients(loadedClients);
+            setSelectedId(loadedClients.find((client) => client.lat !== undefined)?.id ?? null);
           }
           if (Array.isArray(workspace.cityProfiles) && workspace.cityProfiles.length) {
             setCityProfiles(workspace.cityProfiles);
           }
           if (workspace.city) setCity(workspace.city);
-          if (Array.isArray(workspace.history)) {
-            setHistory(workspace.history.map((batch) => ({
-              ...batch,
-              importedAt: new Date(batch.importedAt),
-            })));
-          }
+          setHistory(normalizedHistory);
         }
       } catch {
         window.localStorage.removeItem(STORAGE_KEY);
@@ -408,6 +467,8 @@ export function FibraMapApp() {
     setSelectedId(null);
     setStatus('Todos');
     setPlan('Todos');
+    setActiveBatchId('all');
+    setLocationFilter('Todos');
     setView('mapa');
   }
 
@@ -493,7 +554,6 @@ export function FibraMapApp() {
         ]),
       ) as Record<keyof typeof HEADER_ALIASES, number>;
 
-      const existingIds = new Set(clients.map((client) => normalizeKey(client.id)));
       const fileIds = new Set<string>();
       const nonEmptyRows = matrix
         .slice(1)
@@ -590,7 +650,7 @@ export function FibraMapApp() {
         if (sourceState && sourceState !== inferredState) {
           issues.push(`UF diferente de ${inferredState}`);
         }
-        if (normalizedId && (existingIds.has(normalizedId) || fileIds.has(normalizedId))) issues.push('registro duplicado');
+        if (normalizedId && fileIds.has(normalizedId)) issues.push('registro duplicado nesta importação');
         if (normalizedId) fileIds.add(normalizedId);
         if (providerTemplate && classification && classification !== 'cliente') issues.push('registro classificado como Fornecedor');
         if (hasCoordinateInput && !coordinatesValid) issues.push('latitude/longitude inválidas');
@@ -785,10 +845,13 @@ export function FibraMapApp() {
       return;
     }
 
-    const id = normalizeText(clientDraft.id) || generatedClientId(name, street, number, profile.name);
+    const requestedId = normalizeText(clientDraft.id) || generatedClientId(name, street, number, profile.name);
     const original = clientPanelMode === 'edit' ? selected : null;
+    const id = original?.importBatchId ? original.id : requestedId;
     const duplicate = clients.some((client) =>
-      normalizeKey(client.id) === normalizeKey(id) && client.id !== original?.id,
+      normalizeKey(client.externalId ?? client.id) === normalizeKey(requestedId)
+      && client.id !== original?.id
+      && client.importBatchId === original?.importBatchId,
     );
     if (duplicate) {
       setClientEditorError('Já existe um cliente com esse código/ID.');
@@ -819,6 +882,7 @@ export function FibraMapApp() {
     const source = original && original.source !== 'demo' ? original.source : 'manual';
     const base: ParsedClient = {
       id,
+      externalId: original?.importBatchId ? requestedId : undefined,
       name,
       street,
       number,
@@ -837,6 +901,9 @@ export function FibraMapApp() {
       contract: normalizeText(clientDraft.contract) || undefined,
       locationQuality: 'pendente',
       source,
+      importBatchId: original?.importBatchId,
+      importRowNumber: original?.importRowNumber,
+      importIssues: [],
       rowNumber: 0,
       issues: [],
       needsGeocoding: true,
@@ -888,6 +955,8 @@ export function FibraMapApp() {
       return [...baseClients, resolved];
     });
     setCity(profile.name);
+    if (!original?.importBatchId) setActiveBatchId('all');
+    setLocationFilter('Todos');
     setStatus('Todos');
     setPlan('Todos');
     setSelectedId(resolved.id);
@@ -915,10 +984,12 @@ export function FibraMapApp() {
       locationQuality: 'pendente',
       rowNumber: 0,
       issues: [],
+      importIssues: [],
       needsGeocoding: true,
     };
     const resolved = await geocode(row, activeCityProfile.ibgeId);
     setClients((current) => current.map((client) => client.id === selected.id ? resolved : client));
+    if (resolved.lat !== undefined && resolved.lng !== undefined) setLocationFilter('Todos');
     setClientEditorBusy(false);
     setToast(resolved.lat !== undefined
       ? `${resolved.name} foi localizado novamente.`
@@ -933,38 +1004,53 @@ export function FibraMapApp() {
     }
     setImportBusy(true);
     setImportError('');
-    const valid = importPreview.rows
-      .filter((row) => row.issues.length === 0)
-      .map((row) => {
-        const rowCity = activeCityProfile.name;
-        const rowState = activeCityProfile.state;
-        return {
-          ...row,
-          city: rowCity,
-          state: rowState,
-          status: importPreview.providerTemplate ? importDefaultStatus : row.status,
-        };
+    const batchId = crypto.randomUUID();
+    const resolved = importPreview.rows.map((row) => {
+      const hasImportError = row.issues.length > 0;
+      const externalId = row.id || `LINHA-${row.rowNumber}`;
+      return recordFromParsed({
+        ...row,
+        id: `${batchId}:${row.rowNumber}`,
+        externalId,
+        city: activeCityProfile.name,
+        state: activeCityProfile.state,
+        status: hasImportError
+          ? 'Pendente'
+          : importPreview.providerTemplate ? importDefaultStatus : row.status,
+        pendingReason: hasImportError ? row.issues.join(' · ') : row.pendingReason,
+        lat: hasImportError ? undefined : row.lat,
+        lng: hasImportError ? undefined : row.lng,
+        locationQuality: hasImportError ? 'pendente' : row.locationQuality,
+        importBatchId: batchId,
+        importRowNumber: row.rowNumber,
+        importIssues: row.issues,
       });
-    const resolved = valid.map(recordFromParsed);
+    });
 
     const mapped = resolved.filter((row) => row.lat !== undefined && row.lng !== undefined).length;
     const pending = resolved.length - mapped;
-    const rejected = importPreview.rows.length - valid.length;
+    const rejected = resolved.filter((row) => Boolean(row.importIssues?.length)).length;
     setClients((current) => current.every((client) => client.source === 'demo')
       ? resolved
       : [...current, ...resolved]);
     setHistory((current) => [{
-      id: crypto.randomUUID(),
+      id: batchId,
+      name: importPreview.fileName.replace(/\.(xlsx|csv)$/i, ''),
       fileName: importPreview.fileName,
+      city: activeCityProfile.name,
+      state: activeCityProfile.state,
       importedAt: new Date(),
       total: importPreview.rows.length,
       mapped,
       pending,
       rejected,
+      clientIds: resolved.map((row) => row.id),
     }, ...current]);
 
     const importedCity = resolved.find((row) => row.city)?.city;
     if (importedCity) setCity(importedCity);
+    setActiveBatchId(batchId);
+    setLocationFilter('Todos');
     setStatus('Todos');
     setPlan('Todos');
     setSelectedId(resolved.find((row) => row.lat !== undefined)?.id ?? null);
@@ -974,14 +1060,80 @@ export function FibraMapApp() {
     setImportPreview(null);
     setView('mapa');
     setToast(mapped
-      ? `${mapped} cliente${mapped === 1 ? '' : 's'} confirmado${mapped === 1 ? '' : 's'} em ${activeCityProfile.name}/${activeCityProfile.state}${pending ? ` · ${pending} aguardando revisão` : ''}${rejected ? ` · ${rejected} com erro` : ''}.`
-      : `Nenhum endereço foi confirmado em ${activeCityProfile.name}/${activeCityProfile.state}. Verifique os registros pendentes.`);
+      ? `${mapped} cliente${mapped === 1 ? '' : 's'} confirmado${mapped === 1 ? '' : 's'} em ${activeCityProfile.name}/${activeCityProfile.state}${pending ? ` · ${pending} aguardando revisão` : ''}${rejected ? ` · ${rejected} para corrigir` : ''}.`
+      : `${resolved.length} registro${resolved.length === 1 ? '' : 's'} salvo${resolved.length === 1 ? '' : 's'} para revisão em ${activeCityProfile.name}/${activeCityProfile.state}.`);
+  }
+
+  function batchStats(batchId: string) {
+    const records = clients.filter((client) => client.importBatchId === batchId);
+    return {
+      records,
+      mapped: records.filter((client) => client.lat !== undefined && client.lng !== undefined).length,
+      pending: records.filter((client) => client.lat === undefined || client.lng === undefined).length,
+      issues: records.filter((client) => Boolean(client.importIssues?.length)).length,
+    };
+  }
+
+  function showBatchOnMap(batch: ImportBatch) {
+    setCity(batch.city);
+    setActiveBatchId(batch.id);
+    setLocationFilter('Todos');
+    setStatus('Todos');
+    setPlan('Todos');
+    setSelectedId(null);
+    setClientPanelMode(null);
+    setView('mapa');
+  }
+
+  function reviewBatch(batch: ImportBatch) {
+    const firstPending = clients.find((client) => client.importBatchId === batch.id
+      && (client.lat === undefined || client.lng === undefined || Boolean(client.importIssues?.length)));
+    setCity(batch.city);
+    setActiveBatchId(batch.id);
+    setLocationFilter('Revisar');
+    setStatus('Todos');
+    setPlan('Todos');
+    setSelectedId(firstPending?.id ?? null);
+    setClientPanelMode(null);
+    setView('lista');
+  }
+
+  function openBatchEditor(batch: ImportBatch) {
+    setBatchEditorId(batch.id);
+    setBatchNameDraft(batch.name);
+  }
+
+  function saveBatchEditor() {
+    const name = normalizeText(batchNameDraft);
+    if (!batchEditorId || !name) return;
+    setHistory((current) => current.map((batch) => batch.id === batchEditorId ? { ...batch, name } : batch));
+    setBatchEditorId(null);
+    setBatchNameDraft('');
+    setToast('Nome da importação atualizado.');
+  }
+
+  function deleteBatch(batch: ImportBatch) {
+    const stats = batchStats(batch.id);
+    const confirmed = window.confirm(
+      `Excluir a importação “${batch.name}”? Os ${stats.records.length} clientes vinculados a ela também serão removidos.`,
+    );
+    if (!confirmed) return;
+    setClients((current) => current.filter((client) => client.importBatchId !== batch.id));
+    setHistory((current) => current.filter((item) => item.id !== batch.id));
+    if (activeBatchId === batch.id) setActiveBatchId('all');
+    if (selected?.importBatchId === batch.id) {
+      setSelectedId(null);
+      setClientPanelMode(null);
+    }
+    setToast(`Importação “${batch.name}” excluída.`);
   }
 
   function resetDemo() {
     setClients(DEMO_CLIENTS);
     setCityProfiles([DEFAULT_CITY_PROFILE]);
     setHistory([]);
+    setActiveBatchId('all');
+    setLocationFilter('Todos');
     setCity(DEFAULT_CITY_PROFILE.name);
     setStatus('Todos');
     setPlan('Todos');
@@ -996,7 +1148,7 @@ export function FibraMapApp() {
   const previewGeocode = importPreview?.rows.filter((row) => row.issues.length === 0 && row.needsGeocoding).length ?? 0;
   const previewNotLocated = importPreview?.rows.filter((row) => row.issues.length === 0 && row.lat === undefined && !row.needsGeocoding).length ?? 0;
   const previewErrors = importPreview?.rows.filter((row) => row.issues.length > 0).length ?? 0;
-  const previewImportable = importPreview?.rows.filter((row) => row.issues.length === 0).length ?? 0;
+  const previewTotal = importPreview?.rows.length ?? 0;
 
   return (
     <main className="app-shell">
@@ -1039,6 +1191,8 @@ export function FibraMapApp() {
               setSelectedId(null);
               setStatus('Todos');
               setPlan('Todos');
+              setActiveBatchId('all');
+              setLocationFilter('Todos');
               setClientPanelMode(null);
               setView('mapa');
             }}
@@ -1094,6 +1248,8 @@ export function FibraMapApp() {
                 setSelectedId(null);
                 setStatus('Todos');
                 setPlan('Todos');
+                setActiveBatchId('all');
+                setLocationFilter('Todos');
                 setClientPanelMode(null);
                 setView('mapa');
               }}
@@ -1130,6 +1286,21 @@ export function FibraMapApp() {
                 <select value={plan} onChange={(event) => setPlan(event.target.value)}>
                   <option>Todos</option>
                   {plans.map((option) => <option key={option}>{option}</option>)}
+                </select>
+                <ChevronDown size={13} />
+              </label>
+              <label className="filter-button batch-filter">
+                <span className="filter-label">Importação</span>
+                <select value={activeBatchId} onChange={(event) => { setActiveBatchId(event.target.value); setSelectedId(null); setClientPanelMode(null); }}>
+                  <option value="all">Todos os registros</option>
+                  {cityHistory.map((batch) => <option key={batch.id} value={batch.id}>{batch.name} · {batch.importedAt.toLocaleDateString('pt-BR')}</option>)}
+                </select>
+                <ChevronDown size={13} />
+              </label>
+              <label className="filter-button">
+                <span className="filter-label">Localização</span>
+                <select value={locationFilter} onChange={(event) => setLocationFilter(event.target.value as LocationFilter)}>
+                  <option>Todos</option><option>Mapeados</option><option>Revisar</option>
                 </select>
                 <ChevronDown size={13} />
               </label>
@@ -1177,11 +1348,17 @@ export function FibraMapApp() {
         {view === 'lista' && (
           <section className="panel-view">
             <div className="panel-heading">
-              <div><span className="eyebrow">Base atual</span><h1>Lista de clientes</h1><p>{visibleClients.length} registros após os filtros.</p></div>
+              <div><span className="eyebrow">{activeBatch ? 'Importação selecionada' : 'Base atual'}</span><h1>Lista de clientes</h1><p>{activeBatch ? `${activeBatch.name} · ${activeBatch.importedAt.toLocaleString('pt-BR')}` : `${visibleClients.length} registros após os filtros.`}</p></div>
               <div className="panel-heading-actions">
                 <button className="secondary-small" onClick={openImporter}><Upload size={15} />Importar</button>
                 <button className="primary-small" onClick={openNewClient}><Plus size={15} />Adicionar cliente</button>
               </div>
+            </div>
+            <div className="list-scope-bar" aria-label="Filtrar por localização">
+              {(['Todos', 'Mapeados', 'Revisar'] as LocationFilter[]).map((option) => (
+                <button key={option} className={locationFilter === option ? 'active' : ''} onClick={() => setLocationFilter(option)}>{option}</button>
+              ))}
+              {activeBatch && <button className="clear-batch-filter" onClick={() => { setActiveBatchId('all'); setLocationFilter('Todos'); }}>Ver toda a cidade</button>}
             </div>
             <div className="table-wrap">
               <table>
@@ -1189,12 +1366,12 @@ export function FibraMapApp() {
                 <tbody>
                   {visibleClients.map((client) => (
                     <tr key={client.id} onClick={() => { handleMapSelect(client.id); setView('mapa'); }}>
-                      <td><b>{client.name}</b><small>{client.id}</small></td>
+                      <td><b>{client.name}</b><small>{client.externalId ?? client.id}{client.importRowNumber ? ` · linha ${client.importRowNumber}` : ''}</small></td>
                       <td>{client.street ? `${client.street}, ${client.number}` : 'Não informado'}</td>
                       <td>{client.phone || client.email || '—'}</td>
                       <td>{client.plan}</td>
                       <td><span className="status-pill" style={{ color: STATUS_COLORS[client.status] }}><i style={{ background: STATUS_COLORS[client.status] }} />{client.status}</span></td>
-                      <td>{client.lat !== undefined ? <span className="mapped"><CheckCircle2 size={14} />Mapeado</span> : <span className="unmapped" title={client.pendingReason}><Clock3 size={14} />Revisar</span>}</td>
+                      <td>{client.lat !== undefined && !client.importIssues?.length ? <span className="mapped"><CheckCircle2 size={14} />Mapeado</span> : <span className="unmapped" title={client.pendingReason}><Clock3 size={14} />{client.importIssues?.length ? 'Corrigir dados' : 'Realocalizar'}</span>}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -1206,12 +1383,12 @@ export function FibraMapApp() {
                 <button className="mobile-client-card" key={`card-${client.id}`} onClick={() => { handleMapSelect(client.id); setView('mapa'); }}>
                   <span className="mobile-client-card-top">
                     <span className="mobile-client-avatar">{client.name.slice(0, 2).toUpperCase()}</span>
-                    <span className="mobile-client-name"><b>{client.name}</b><small>{client.id} · {client.plan}</small></span>
+                    <span className="mobile-client-name"><b>{client.name}</b><small>{client.externalId ?? client.id} · {client.plan}</small></span>
                     <span className="mobile-card-status" style={{ color: STATUS_COLORS[client.status] }}><i style={{ background: STATUS_COLORS[client.status] }} />{client.status}</span>
                   </span>
                   <span className="mobile-client-address"><MapPin size={15} />{client.street ? `${client.street}, ${client.number}` : 'Endereço não informado'}</span>
-                  <span className={client.lat !== undefined ? 'mobile-location-ready' : 'mobile-location-pending'}>
-                    {client.lat !== undefined ? <><CheckCircle2 size={14} />Localizado no mapa</> : <><Clock3 size={14} />Requer revisão</>}
+                  <span className={client.lat !== undefined && !client.importIssues?.length ? 'mobile-location-ready' : 'mobile-location-pending'}>
+                    {client.lat !== undefined && !client.importIssues?.length ? <><CheckCircle2 size={14} />Localizado no mapa</> : <><Clock3 size={14} />{client.importIssues?.length ? client.importIssues.join(' · ') : 'Requer realocalização'}</>}
                   </span>
                 </button>
               ))}
@@ -1232,17 +1409,26 @@ export function FibraMapApp() {
             <div className="metric-grid">
               <div><MapPinned size={18} /><span>Mapeados</span><b>{locatedCount}</b></div>
               <div><Clock3 size={18} /><span>Sem localização</span><b>{pendingCount}</b></div>
-              <div><FileSpreadsheet size={18} /><span>Arquivos nesta sessão</span><b>{history.length}</b></div>
+              <div><FileSpreadsheet size={18} /><span>Importações da cidade</span><b>{cityHistory.length}</b></div>
             </div>
-            {history.length ? (
+            {cityHistory.length ? (
               <div className="history-list">
-                {history.map((item) => (
-                  <article key={item.id}>
+                {cityHistory.map((item) => {
+                  const stats = batchStats(item.id);
+                  return (
+                  <article key={item.id} className={activeBatchId === item.id ? 'history-selected' : ''}>
                     <span className="history-icon"><FileSpreadsheet size={18} /></span>
-                    <div><b>{item.fileName}</b><small>{item.importedAt.toLocaleString('pt-BR')}</small></div>
-                    <span>{item.total} linhas</span><span className="history-good">{item.mapped} no mapa</span><span className="history-warn">{item.pending} pendentes</span><span className="history-bad">{item.rejected} erros</span>
+                    <div className="history-copy"><b>{item.name}</b><small>{item.fileName} · {item.importedAt.toLocaleString('pt-BR')}</small></div>
+                    <span>{stats.records.length} registros</span><span className="history-good">{stats.mapped} no mapa</span><span className="history-warn">{stats.pending} pendentes</span><span className="history-bad">{stats.issues} com erro</span>
+                    <div className="history-actions">
+                      <button onClick={() => showBatchOnMap(item)}><MapPinned size={14} />Ver mapa</button>
+                      <button onClick={() => reviewBatch(item)} disabled={!stats.pending && !stats.issues}><AlertTriangle size={14} />Revisar</button>
+                      <button onClick={() => openBatchEditor(item)}><Pencil size={14} />Editar</button>
+                      <button className="history-delete" onClick={() => deleteBatch(item)}><Trash2 size={14} />Excluir</button>
+                    </div>
                   </article>
-                ))}
+                  );
+                })}
               </div>
             ) : (
               <div className="empty-state"><span><FileSpreadsheet size={27} /></span><h2>Nenhuma planilha importada</h2><p>A base exibida é fictícia. Importe um arquivo de teste ou baixe o modelo.</p><div><button className="primary-small" onClick={openImporter}>Escolher arquivo</button><button className="secondary-small" onClick={downloadTemplate}><Download size={14} />Baixar modelo</button></div></div>
@@ -1318,17 +1504,42 @@ export function FibraMapApp() {
                   ))}
                 </tbody></table>{importPreview.rows.length > 6 && <div className="more-rows">Mais {importPreview.rows.length - 6} linhas não exibidas na prévia.</div>}</div>
                 {importError && <div className="error-box"><AlertTriangle size={16} />{importError}</div>}
-                <p className="geocode-note"><ShieldCheck size={15} />O próprio sistema localiza os endereços em {importCityOverride}/{importStateOverride}. Você só precisa aguardar a conclusão e adicionar os clientes ao mapa. Registros sem número real, como S/N, não podem indicar uma residência exata.</p>
+                <p className="geocode-note"><ShieldCheck size={15} />O próprio sistema localiza os endereços em {importCityOverride}/{importStateOverride}. Registros incompletos também serão salvos no lote e ficarão disponíveis em “Revisar” para correção e nova localização.</p>
                 <footer className="modal-actions">
                   <button className="secondary-action" onClick={() => setImportPreview(null)} disabled={importBusy}>Voltar</button>
-                  <button className="primary-action" onClick={() => void confirmImport()} disabled={importBusy || previewImportable === 0}>
+                  <button className="primary-action" onClick={() => void confirmImport()} disabled={importBusy || previewTotal === 0}>
                     {importBusy
                       ? <><LoaderCircle className="spin" size={15} />Localizando {geocodeProgress.done}/{geocodeProgress.total}…</>
-                      : <>Adicionar {previewImportable} clientes ao mapa</>}
+                      : <>Salvar {previewTotal} registros nesta importação</>}
                   </button>
                 </footer>
               </>
             )}
+          </section>
+        </div>
+      )}
+
+      {editingBatch && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setBatchEditorId(null); }}>
+          <section className="import-modal batch-edit-modal" role="dialog" aria-modal="true" aria-labelledby="batch-edit-title">
+            <header>
+              <div><span className="eyebrow">Organizar histórico</span><h2 id="batch-edit-title">Editar importação</h2></div>
+              <button onClick={() => setBatchEditorId(null)} aria-label="Fechar"><X size={18} /></button>
+            </header>
+            <p className="city-help">Altere o nome usado para identificar este lote. O arquivo, a data e os clientes vinculados permanecem preservados.</p>
+            <label className="batch-name-field">
+              <span>Nome da importação</span>
+              <input value={batchNameDraft} onChange={(event) => setBatchNameDraft(event.target.value)} autoFocus maxLength={80} />
+            </label>
+            <div className="batch-readonly-details">
+              <span><small>Arquivo original</small><b>{editingBatch.fileName}</b></span>
+              <span><small>Cidade</small><b>{editingBatch.city}/{editingBatch.state}</b></span>
+              <span><small>Importada em</small><b>{editingBatch.importedAt.toLocaleString('pt-BR')}</b></span>
+            </div>
+            <footer className="modal-actions">
+              <button className="secondary-action" onClick={() => setBatchEditorId(null)}>Cancelar</button>
+              <button className="primary-action" onClick={saveBatchEditor} disabled={!normalizeText(batchNameDraft)}>Salvar nome</button>
+            </footer>
           </section>
         </div>
       )}

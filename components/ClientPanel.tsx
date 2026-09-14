@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  AlertTriangle,
   CheckCircle2,
   Clock3,
   LocateFixed,
@@ -115,7 +116,7 @@ export function ClientPanel({
             {mode === 'create' ? <UserRoundPlus size={18} /> : client?.name.slice(0, 2).toUpperCase()}
           </span>
           <div>
-            <small>{mode === 'create' ? 'Novo registro' : client?.id}</small>
+            <small>{mode === 'create' ? 'Novo registro' : client?.externalId ?? client?.id}</small>
             <h2>{mode === 'create' ? 'Adicionar cliente' : client?.name}</h2>
           </div>
         </div>
@@ -134,6 +135,14 @@ export function ClientPanel({
             </div>
           </div>
 
+          {client.importIssues?.length ? (
+            <div className="client-import-issues">
+              <AlertTriangle size={17} />
+              <div><b>Dados da importação precisam de correção</b><span>{client.importIssues.join(' · ')}</span></div>
+              <button onClick={onEdit}>Corrigir</button>
+            </div>
+          ) : null}
+
           <section className="client-panel-section">
             <div className="section-caption">Endereço</div>
             <div className="address-feature"><MapPin size={18} /><p><b>{shown(client.street)}, {shown(client.number)}</b><span>{[client.complement, client.neighborhood, `${client.city}/${client.state}`, client.zip].filter(Boolean).join(' · ')}</span></p></div>
@@ -147,7 +156,7 @@ export function ClientPanel({
               <Detail label="Contrato" value={client.contract} />
               <Detail label="Tipo" value={client.customerType} />
               <Detail label="Cadastro" value={client.registeredAt} />
-              <Detail label="Origem" value={client.source === 'manual' ? 'Cadastro manual' : client.source === 'demo' ? 'Exemplo' : 'Planilha'} />
+              <Detail label="Origem" value={client.source === 'manual' ? 'Cadastro manual' : client.source === 'demo' ? 'Exemplo' : `Planilha${client.importRowNumber ? ` · linha ${client.importRowNumber}` : ''}`} />
             </dl>
           </section>
 
