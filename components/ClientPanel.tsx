@@ -161,6 +161,14 @@ export function ClientPanel({
               </p>
             </div>
 
+            {!locationReady && client.pendingReason && (
+              <div className="client-quick-warning" role="status">
+                <AlertTriangle size={14} /><span><b>Motivo da não localização</b><small>{client.pendingReason}</small></span>
+              </div>
+            )}
+            {client.originalStreet && !client.addressAdjustedByAi && client.originalStreet !== client.street && (
+              <div className="client-ai-adjustment"><span><b>Grafia corrigida pelo cadastro do IBGE</b><small>{client.originalStreet} → {client.street}</small></span></div>
+            )}
             {client.addressAdjustedByAi && (
               <div className="client-ai-adjustment">
                 <Sparkles size={14} />

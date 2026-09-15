@@ -2335,7 +2335,7 @@ export function FibraMapApp({ cloudEnabled = false, currentUser }: FibraMapAppPr
                         ? <span className="grouped-location" title={cityRuralGroupByClientId.get(client.id)?.name}><UsersRound size={14} />{cityRuralGroupByClientId.get(client.id)?.name}</span>
                         : client.lat !== undefined && !client.importIssues?.length
                           ? <span className="mapped"><CheckCircle2 size={14} />Mapeado</span>
-                          : <span className="unmapped" title={client.pendingReason}><Clock3 size={14} />{client.importIssues?.length ? 'Corrigir dados' : 'Realocalizar'}</span>}</td>
+                          : <span className="unmapped" title={client.pendingReason}><Clock3 size={14} />{client.importIssues?.length ? client.importIssues.join(' · ') : client.pendingReason || 'Localização pendente: consulte novamente.'}</span>}</td>
                       <td><WatermelonButton className="table-relocate" onClick={(event) => { event.stopPropagation(); startPositioning(client.id, 'view'); }}><MapPinned size={14} />Realocar</WatermelonButton></td>
                     </tr>
                   ))}
@@ -2371,7 +2371,7 @@ export function FibraMapApp({ cloudEnabled = false, currentUser }: FibraMapAppPr
                         ? <><UsersRound size={14} />{cityRuralGroupByClientId.get(client.id)?.name}</>
                         : client.lat !== undefined && !client.importIssues?.length
                           ? <><CheckCircle2 size={14} />Localizado no mapa</>
-                          : <><Clock3 size={14} />{client.importIssues?.length ? client.importIssues.join(' · ') : 'Requer realocalização'}</>}
+                          : <><Clock3 size={14} />{client.importIssues?.length ? client.importIssues.join(' · ') : client.pendingReason || 'Localização pendente: consulte novamente.'}</>}
                     </span>
                   </WatermelonButton>
                   <WatermelonButton className="mobile-relocate-button" onClick={() => startPositioning(client.id, 'view')}><MapPinned size={15} />Realocar no mapa</WatermelonButton>

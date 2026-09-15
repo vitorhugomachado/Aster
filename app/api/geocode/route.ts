@@ -1,3 +1,4 @@
+import { geocodeError } from '../../lib/geocode-errors';
 import { NextResponse } from 'next/server';
 import { lookupCnefeAddress } from '../../data/cnefe';
 import { findMunicipality, findMunicipalityByName } from '../../data/municipalities';
@@ -32,6 +33,7 @@ interface GoogleGeocodeResult {
 }
 
 interface GoogleGeocodeResponse {
+  error_message?: string;
   status?: string;
   results?: GoogleGeocodeResult[];
 }
@@ -282,6 +284,16 @@ export async function POST(request: Request) {
     );
   }
 
+  const failureResponse = (failure: ReturnType<typeof geocodeError>) => NextResponse.json({
+    code: failure.code,
+    message: failure.message + (approximateCnefeSuggestion ? ' O IBGE oferece apenas uma posição estimada; confirme o ponto no mapa.' : ''),
+    ...(approximateCnefeSuggestion ? {
+      suggestedLocation: { lat: approximateCnefeSuggestion.lat, lng: approximateCnefeSuggestion.lng },
+      suggestionSource: approximateCnefeSuggestion.source,
+      suggestedAddress: approximateCnefeSuggestion.formattedAddress,
+    } : {}),
+  }, { status: failure.status, headers: { 'Cache-Control': 'no-store', ...(failure.status === 429 ? { 'Retry-After': '60' } : {}) } });
+  let validationFailure: ReturnType<typeof geocodeError> | undefined;
   if (addressValidationKey) {
     try {
       const validationResponse = await fetch(
@@ -388,6 +400,8 @@ export async function POST(request: Request) {
         );
       }
 
+      const validationError = await validationResponse.json().catch(() => ({})) as AddressValidationResponse;
+      validationFailure = geocodeError(validationError.error?.status ?? 'UNKNOWN_ERROR', validationError.error?.message);
       // Chaves antigas podem ainda não ter a Address Validation API habilitada.
       // Nessa situação mantemos o Geocoding como contingência, sem interromper a importação.
       if (![400, 403, 404, 429].includes(validationResponse.status) && validationResponse.status < 500) {
@@ -402,6 +416,7 @@ export async function POST(request: Request) {
   }
 
   if (!geocodingKey) {
+    if (validationFailure) return failureResponse(validationFailure);
     if (approximateCnefeSuggestion) {
       return reviewResponse(
         'insufficient_precision',
@@ -431,25 +446,12 @@ export async function POST(request: Request) {
 
   try {
     const response = await fetch(url, { cache: 'no-store' });
-    if (!response.ok) {
-      return NextResponse.json({ message: 'Google Geocoding indisponível.' }, { status: 502 });
+    const data = await response.json().catch(() => ({})) as GoogleGeocodeResponse;
+    if (!response.ok || data.status !== 'OK') {
+      return failureResponse(geocodeError(data.status ?? 'UNKNOWN_ERROR', data.error_message));
     }
-
-    const data = await response.json() as GoogleGeocodeResponse;
-    if (data.status === 'ZERO_RESULTS' || !data.results?.length) {
-      return NextResponse.json(
-        { code: 'not_found', message: 'Endereço não localizado.' },
-        { status: 404, headers: { 'Cache-Control': 'no-store' } },
-      );
-    }
-    if (data.status === 'OVER_QUERY_LIMIT') {
-      return NextResponse.json(
-        { code: 'quota_exceeded', message: 'Limite temporário do Google atingido.' },
-        { status: 429, headers: { 'Cache-Control': 'no-store', 'Retry-After': '60' } },
-      );
-    }
-    if (data.status !== 'OK') {
-      return NextResponse.json({ message: 'O Google não aceitou a consulta.' }, { status: 502 });
+    if (!data.results?.length) {
+      return failureResponse(geocodeError('UNKNOWN_ERROR'));
     }
 
     const candidates = data.results.map((result) => {
