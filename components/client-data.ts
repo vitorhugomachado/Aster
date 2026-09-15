@@ -193,3 +193,8 @@ export const TEMPLATE_CSV = [
   'nome,logradouro,numero,cliente_id,contrato,celular,email,documento,complemento,bairro,cidade,uf,cep,status_cliente,plano,latitude,longitude',
   'Cliente exemplo,Rua Exemplo,120,CLI-1001,CT-1001,(44) 99999-9999,cliente@exemplo.com,000.000.000-00,,Centro,Guaporema,PR,,Ativo,600 Mega,,',
 ].join('\r\n');
+
+// Provider exports may omit client codes and include city-only group headings.
+export function isProviderClientRow(fields: { id: string; name: string; street: string; number: string }) {
+  return Boolean(fields.id || fields.name || fields.street || fields.number);
+}

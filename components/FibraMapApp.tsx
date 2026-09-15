@@ -1,5 +1,7 @@
 'use client';
 
+import { isProviderClientRow } from './client-data';
+
 import {
   ChangeEvent,
   CSSProperties,
@@ -1165,13 +1167,10 @@ export function FibraMapApp({ cloudEnabled = false, currentUser }: FibraMapAppPr
       const sourceRows = providerTemplate
         ? nonEmptyRows.filter(({ row }) => {
             const id = mapping.id >= 0 ? normalizeText(row[mapping.id]) : '';
-            const classification = mapping.classification >= 0 ? normalizeText(row[mapping.classification]) : '';
             const name = mapping.name >= 0 ? normalizeText(row[mapping.name]) : '';
             const street = mapping.street >= 0 ? normalizeText(row[mapping.street]) : '';
             const number = mapping.number >= 0 ? normalizeText(row[mapping.number]) : '';
-            return mapping.classification >= 0
-              ? Boolean(id && classification)
-              : Boolean(name || street || number);
+            return isProviderClientRow({ id, name, street, number });
           })
         : nonEmptyRows;
       const cityColumn = mapping.city;
