@@ -183,7 +183,16 @@ export function ClientMap({
         googleMapRef.current = new Map(containerRef.current, {
           center: { lat: -23.3402, lng: -52.7786 },
           zoom: 13,
-          mapTypeControl: false,
+          mapTypeControl: true,
+          mapTypeControlOptions: {
+            style: google.maps.MapTypeControlStyle.DROPDOWN_MENU,
+            position: google.maps.ControlPosition.LEFT_CENTER,
+            mapTypeIds: [
+              google.maps.MapTypeId.ROADMAP,
+              google.maps.MapTypeId.SATELLITE,
+              google.maps.MapTypeId.HYBRID,
+            ],
+          },
           streetViewControl: false,
           fullscreenControl: false,
           clickableIcons: false,

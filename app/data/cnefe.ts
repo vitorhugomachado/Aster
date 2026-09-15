@@ -33,6 +33,7 @@ export interface CnefeMatch {
   matchedAddress: string;
   matchedPoints: number;
   precision: 'exact' | 'interpolated';
+  correctedStreet?: string;
 }
 
 export interface CnefeStreetCandidate {
@@ -296,7 +297,7 @@ export async function lookupCnefeAddress(
       .sort((left, right) => left.distance - right.distance);
     const bestDistance = ranked[0]?.distance;
     const bestStreets = ranked.filter((item) => item.distance === bestDistance);
-    if (bestStreets.length === 1) {
+    if (!streetKeys.includes(requestedStreet) && requestedStreet.length >= 6 && bestStreets.length === 1) {
       matchedStreet = bestStreets[0].streetKey;
       inferredStreet = true;
       matches = matchesForStreet(matchedStreet);
@@ -304,10 +305,11 @@ export async function lookupCnefeAddress(
   }
 
   if (matches.length) {
-    return averagedMatch(
-      refineByLocation(matches, neighborhood, zip),
-      inferredStreet ? 'interpolated' : 'exact',
-    );
+    const match = averagedMatch(refineByLocation(matches, neighborhood, zip), 'exact');
+    if (match && inferredStreet) {
+      match.correctedStreet = splitAddress(match.matchedAddress)?.street;
+    }
+    return match;
   }
   return interpolatedMatch(records, matchedStreet, requestedNumber, neighborhood, zip);
 }

@@ -1380,6 +1380,7 @@ export function FibraMapApp({ cloudEnabled = false, currentUser }: FibraMapAppPr
   async function geocode(row: ParsedClient, ibgeId = activeCityProfile?.ibgeId): Promise<ClientRecord> {
     const base = recordFromParsed(row);
     type GeocodeResult = {
+      correctedStreet?: string;
       lat?: number;
       lng?: number;
       quality?: 'exata' | 'aproximada';
@@ -1407,6 +1408,8 @@ export function FibraMapApp({ cloudEnabled = false, currentUser }: FibraMapAppPr
       if (firstAttempt.response.ok && hasExactLocation(firstAttempt.result)) {
         return {
           ...base,
+          street: firstAttempt.result.correctedStreet || base.street,
+          originalStreet: firstAttempt.result.correctedStreet ? (base.originalStreet || base.street) : base.originalStreet,
           lat: firstAttempt.result.lat,
           lng: firstAttempt.result.lng,
           suggestedLat: undefined,
@@ -1448,7 +1451,7 @@ export function FibraMapApp({ cloudEnabled = false, currentUser }: FibraMapAppPr
             if (retry.response.ok && hasExactLocation(retry.result)) {
               return {
                 ...base,
-                street: suggestion.address.street,
+                street: retry.result.correctedStreet || suggestion.address.street,
                 neighborhood: suggestion.address.neighborhood,
                 originalStreet: row.street,
                 originalNeighborhood: row.neighborhood,

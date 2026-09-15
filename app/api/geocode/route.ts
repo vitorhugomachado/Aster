@@ -252,6 +252,7 @@ export async function POST(request: Request) {
       checks: { number: true, street: true, city: true, state: true, zip: true },
       formattedAddress: `${cnefeMatch.matchedAddress}, ${municipality.name} - ${state}, Brasil`,
       matchedPoints: cnefeMatch.matchedPoints,
+      correctedStreet: cnefeMatch.correctedStreet,
     }, { headers: { 'Cache-Control': 'no-store' } });
   }
 
