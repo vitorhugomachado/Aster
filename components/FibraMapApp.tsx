@@ -15,7 +15,7 @@ import {
 import { readSheet } from 'read-excel-file/browser';
 import * as Papa from 'papaparse';
 import Link from 'next/link';
-import Image from 'next/image';
+
 import {
   AlertTriangle,
   CheckCircle2,
@@ -2745,4 +2745,5 @@ export function FibraMapApp({ cloudEnabled = false, currentUser }: FibraMapAppPr
     </main>
   );
 }
+
 
