@@ -2603,3 +2603,18 @@ input::placeholder, textarea::placeholder { color: var(--foreground-subtle); opa
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .premium-login .login-frame { background: rgba(244,250,255,.94); }
 }
+
+/* Compact glass panel: leave the sky visible around the login. */
+.premium-login { padding: 7vh 6vw; }
+.premium-login .login-frame { width: min(980px, 100%); min-height: 0; padding: 18px; gap: 18px; grid-template-columns: 44fr 56fr; border-radius: 28px; }
+.premium-login .login-form-column { padding: 26px 24px; }
+.premium-login .login-wordmark { margin-bottom: 30px; }
+.premium-login .login-wordmark span { font-size: 30px; }
+.premium-login .login-wordmark svg { width: 28px; height: 28px; }
+.premium-login .login-heading h1 { font-size: clamp(25px,2.2vw,32px); }
+.premium-login .login-heading p { font-size: 14px; }
+.premium-login .login-form { margin-top: 26px; gap: 16px; }
+.premium-login .login-footer { margin-top: 24px; }
+.premium-login .login-media { min-height: 460px; }
+@media(max-width: 900px) { .premium-login .login-frame { max-width: 460px; grid-template-columns: 1fr; } }
+@media(max-width: 480px) { .premium-login { padding: 24px 16px; } .premium-login .login-frame { padding: 12px; } .premium-login .login-form-column { padding: 24px 12px; } }
