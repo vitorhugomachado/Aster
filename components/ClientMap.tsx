@@ -84,6 +84,7 @@ export function ClientMap({
   const holdTriggeredRef = useRef<string | null>(null);
   const releaseHandledRef = useRef<string | null>(null);
   const pressedClientRef = useRef<string | null>(null);
+  const [mapLayer, setMapLayer] = useState('roadmap');
   const [provider, setProvider] = useState<MapProvider>('loading');
 
   const clearHold = useCallback(() => {
@@ -183,17 +184,7 @@ export function ClientMap({
         googleMapRef.current = new Map(containerRef.current, {
           center: { lat: -23.3402, lng: -52.7786 },
           zoom: 13,
-          mapTypeControl: true,
-          mapTypeControlOptions: {
-            style: google.maps.MapTypeControlStyle.DROPDOWN_MENU,
-            position: google.maps.ControlPosition.LEFT_CENTER,
-            mapTypeIds: [
-              google.maps.MapTypeId.ROADMAP,
-              google.maps.MapTypeId.SATELLITE,
-              google.maps.MapTypeId.HYBRID,
-              google.maps.MapTypeId.TERRAIN,
-            ],
-          },
+          mapTypeControl: false,
           streetViewControl: false,
           fullscreenControl: false,
           scaleControl: true,
@@ -265,10 +256,10 @@ export function ClientMap({
         map,
         paths: cityProfile.boundary,
         clickable: false,
-        strokeColor: '#5a31f4',
+        strokeColor: '#080a0e',
         strokeOpacity: 0.72,
         strokeWeight: 2,
-        fillColor: '#5a31f4',
+        fillColor: '#080a0e',
         fillOpacity: 0.025,
         zIndex: 1,
       });
@@ -280,10 +271,10 @@ export function ClientMap({
         map,
         paths: zone.boundary,
         clickable: false,
-        strokeColor: '#5b3df5',
+        strokeColor: '#080a0e',
         strokeOpacity: Math.min(.82, .32 + zone.intensity * .08),
         strokeWeight: 1,
-        fillColor: '#765fff',
+        fillColor: '#080a0e',
         fillOpacity: Math.min(.28, .05 + zone.intensity * .035),
         zIndex: 2,
       });
@@ -329,13 +320,13 @@ export function ClientMap({
           : `${client.name} · ${client.status}`,
         icon: isLead ? {
           path: google.maps.SymbolPath.CIRCLE,
-          fillColor: client.markerColor || '#5b3df5',
+          fillColor: client.markerColor || '#080a0e',
           fillOpacity: 1,
           strokeColor: '#ffffff',
           strokeWeight: isSelected ? 4 : 3,
           scale: isSelected ? 10 : 7,
         } : {
-          url: '/brand/aster-client-pin.png',
+          url: '/brand/aster-glass-client-pin-full-lime.png',
           scaledSize: new google.maps.Size(markerSize, markerSize),
           anchor: new google.maps.Point(markerSize / 2, markerSize - 3),
           ...(isGroup ? { labelOrigin: new google.maps.Point(markerSize / 2, markerSize * 0.43) } : {}),
@@ -379,11 +370,11 @@ export function ClientMap({
     if ((selectionChanged || selectedLocationChanged) && selectedClient) {
       map.panTo({ lat: selectedClient.lat, lng: selectedClient.lng });
       if ((map.getZoom() ?? 0) < 17) map.setZoom(17);
-    } else if (cityChanged && cityProfile?.bounds) {
-      map.fitBounds(cityProfile.bounds, 36);
     } else if (cityChanged && cityProfile?.center) {
       map.setCenter(cityProfile.center);
       map.setZoom(13);
+    } else if (cityChanged && cityProfile?.bounds) {
+      map.fitBounds(cityProfile.bounds, 36);
     } else if (locationsChanged && located.length === 1) {
       map.setCenter(bounds.getCenter());
       map.setZoom(17);
@@ -423,8 +414,8 @@ export function ClientMap({
 
     opportunityZones.forEach((zone) => {
       L.polygon(zone.boundary.map((point) => [point.lat, point.lng]), {
-        color: '#5b3df5', weight: 1, opacity: Math.min(.82, .32 + zone.intensity * .08),
-        fillColor: '#765fff', fillOpacity: Math.min(.28, .05 + zone.intensity * .035), interactive: false,
+        color: '#080a0e', weight: 1, opacity: Math.min(.82, .32 + zone.intensity * .08),
+        fillColor: '#080a0e', fillOpacity: Math.min(.28, .05 + zone.intensity * .035), interactive: false,
       }).addTo(layer);
     });
     if (routePath.length >= 2) {
@@ -448,17 +439,17 @@ export function ClientMap({
         icon: isGroup
           ? L.divIcon({
               className: 'aster-group-marker',
-              html: `<img src="/brand/aster-client-pin.png" alt=""><span>${client.groupCount ?? 0}</span>`,
+              html: `<img src="/brand/aster-glass-client-pin-full-lime.png" alt=""><span>${client.groupCount ?? 0}</span>`,
               iconSize: [markerSize, markerSize],
               iconAnchor: [markerSize / 2, markerSize - 3],
             })
           : isLead ? L.divIcon({
               className: 'aster-lead-marker',
-              html: `<span style="background:${client.markerColor || '#5b3df5'}"></span>`,
+              html: `<span style="background:${client.markerColor || '#080a0e'}"></span>`,
               iconSize: [markerSize, markerSize],
               iconAnchor: [markerSize / 2, markerSize / 2],
             }) : L.icon({
-              iconUrl: '/brand/aster-client-pin.png',
+              iconUrl: '/brand/aster-glass-client-pin-full-lime.png',
               iconSize: [markerSize, markerSize],
               iconAnchor: [markerSize / 2, markerSize - 3],
               tooltipAnchor: [0, -markerSize + 8],
@@ -501,16 +492,23 @@ export function ClientMap({
     leafletSelectedLocationRef.current = selectedLocationKey;
     if ((selectionChanged || selectedLocationChanged) && selectedClient) {
       map.flyTo([selectedClient.lat, selectedClient.lng], Math.max(map.getZoom(), 17), { duration: 0.45 });
+    } else if (cityChanged && cityProfile?.center) {
+      map.setMaxBounds(L.latLngBounds([-90, -180], [90, 180]));
+      map.setView([cityProfile.center.lat, cityProfile.center.lng], 13, { animate: false });
+      if (cityProfile.bounds) {
+        map.setMaxBounds(L.latLngBounds(
+          [cityProfile.bounds.south, cityProfile.bounds.west],
+          [cityProfile.bounds.north, cityProfile.bounds.east],
+        ).pad(0.1));
+      }
     } else if (cityChanged && cityProfile?.bounds) {
       const cityBounds = L.latLngBounds(
         [cityProfile.bounds.south, cityProfile.bounds.west],
         [cityProfile.bounds.north, cityProfile.bounds.east],
       );
-      map.setMaxBounds(cityBounds.pad(0.1));
-      map.fitBounds(cityBounds, { padding: [36, 36], animate: false });
-    } else if (cityChanged && cityProfile?.center) {
       map.setMaxBounds(L.latLngBounds([-90, -180], [90, 180]));
-      map.setView([cityProfile.center.lat, cityProfile.center.lng], 13, { animate: false });
+      map.fitBounds(cityBounds, { padding: [36, 36], animate: false });
+      map.setMaxBounds(cityBounds.pad(0.1));
     } else if (locationsChanged && located.length === 1) {
       map.setView([located[0].lat, located[0].lng], 16, { animate: false });
     } else if (locationsChanged && located.length > 1) {
@@ -656,15 +654,17 @@ export function ClientMap({
           <span>Confira a chave de navegador, o domínio autorizado e o faturamento do projeto.</span>
         </div>
       )}
-      {provider !== 'loading' && provider !== 'google-error' && (
-        <div className={`map-provider-chip provider-${provider}`}>
-          {provider === 'google'
-            ? cityProfile
-              ? `Google Maps · ${cityProfile.name}/${cityProfile.state}${cityProfile.bounds ? ' · limites oficiais' : ''}`
-              : 'Google Maps · selecione uma cidade'
-            : 'Modo demonstração · OpenStreetMap'}
+      {provider === 'google' && <details className="glass-dropdown map-layer-picker">
+        <summary>{({ roadmap: 'Mapa', satellite: 'Satélite', hybrid: 'Satélite com ruas', terrain: 'Relevo' } as Record<string, string>)[mapLayer]} <span aria-hidden="true">⌄</span></summary>
+        <div className="glass-dropdown-options">
+          {Object.entries({ roadmap: 'Mapa', satellite: 'Satélite', hybrid: 'Satélite com ruas', terrain: 'Relevo' }).map(([value, label]) =>
+            <button type="button" key={value} aria-pressed={mapLayer === value} onClick={(event) => {
+              googleMapRef.current?.setMapTypeId(value);
+              setMapLayer(value);
+              event.currentTarget.closest('details')?.removeAttribute('open');
+            }}>{label}</button>)}
         </div>
-      )}
+      </details>}
       {provider !== 'loading' && provider !== 'google-error' && (
         <>
           <div className="map-zoom-control" aria-label="Controles do mapa">
@@ -678,3 +678,5 @@ export function ClientMap({
     </div>
   );
 }
+
+

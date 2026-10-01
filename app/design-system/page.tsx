@@ -6,7 +6,7 @@ const colors = [
   { name: 'Ink', value: '#17161B', style: { background: '#17161b', color: '#ffffff' } },
   { name: 'Canvas', value: '#FFFFFF', style: { background: '#ffffff', color: '#000000' } },
   { name: 'Soft gray', value: '#F1F0F5', style: { background: '#f1f0f5', color: '#17161b' } },
-  { name: 'Aster violet', value: '#5B3DF5', style: { background: '#5b3df5', color: '#ffffff' } },
+  { name: 'Aster black', value: '#080a0e', style: { background: '#080a0e', color: '#ffffff' } },
   { name: 'Positive', value: '#087A55', style: { background: '#087a55', color: '#ffffff' } },
   { name: 'Negative', value: '#C9342B', style: { background: '#c9342b', color: '#ffffff' } },
 ];
@@ -32,7 +32,7 @@ export default function DesignSystemPage() {
         <section className="ds-section">
           <div className="ds-section-heading">
             <span>01</span><h2>Cores</h2>
-            <p>Preto e branco estruturam a interface. O violeta Aster indica ação; cores semânticas comunicam estado.</p>
+            <p>Preto e branco estruturam a interface. O preto Aster indica ação; cores semânticas comunicam estado.</p>
           </div>
           <div className="ds-canvas ds-color-grid">
             {colors.map((color) => (
@@ -72,7 +72,7 @@ export default function DesignSystemPage() {
         <section className="ds-section">
           <div className="ds-section-heading">
             <span>04</span><h2>Ações</h2>
-            <p>A ação principal usa o violeta Aster. Preto apoia contraste sem competir com os estados do mapa.</p>
+            <p>A ação principal usa o preto Aster. Preto apoia contraste sem competir com os estados do mapa.</p>
           </div>
           <div className="ds-canvas ds-component-row">
             <WatermelonButton className="ds-button ds-button-primary">Importar clientes</WatermelonButton>
@@ -85,7 +85,7 @@ export default function DesignSystemPage() {
         <section className="ds-section">
           <div className="ds-section-heading">
             <span>05</span><h2>Formulários</h2>
-            <p>Rótulos permanecem visíveis, ajuda contextual é curta e o foco recebe contraste violeta.</p>
+            <p>Rótulos permanecem visíveis, ajuda contextual é curta e o foco recebe contraste preto.</p>
           </div>
           <div className="ds-canvas">
             <label className="ds-field">
@@ -165,3 +165,4 @@ export default function DesignSystemPage() {
     </div>
   );
 }
+

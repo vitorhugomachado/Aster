@@ -14,14 +14,12 @@ import {
 } from 'react';
 import { readSheet } from 'read-excel-file/browser';
 import * as Papa from 'papaparse';
-import Link from 'next/link';
 
 import {
   AlertTriangle,
   CheckCircle2,
   ChevronDown,
   Clock3,
-  Cloud,
   Download,
   FileSpreadsheet,
   FileUp,
@@ -29,28 +27,26 @@ import {
   List,
   LoaderCircle,
   LogOut,
+  Menu,
   MapPin,
   MapPinned,
   Pencil,
   Plus,
-  RefreshCcw,
+
   Search,
-  Sparkles,
-  Target,
   ShieldCheck,
-  SlidersHorizontal,
+
   Trash2,
   Upload,
   UsersRound,
   X,
 } from 'lucide-react';
 import { ClientMap } from './ClientMap';
-import { AsterAssistant } from './AsterAssistant';
 import { ClientDraft, ClientPanel, ClientPanelMode } from './ClientPanel';
 import { RuralGroupDraft, RuralGroupsModal } from './RuralGroupsModal';
 import { OpportunityWorkspace } from './OpportunityWorkspace';
 import { ContinuousTabs } from './continuous-tabs';
-import { CommandSearch, type CommandItem } from './command-search';
+import { ClientAutocomplete } from './ClientAutocomplete';
 import { FloatingInput } from './floating-input';
 import { LabeledProgressIndicator } from './labeled-progress-indicator';
 import {
@@ -260,6 +256,8 @@ interface FibraMapAppProps {
 export function FibraMapApp({ cloudEnabled = false, currentUser }: FibraMapAppProps) {
   const [clients, setClients] = useState<ClientRecord[]>(DEMO_CLIENTS);
   const [view, setView] = useState<ViewName>('mapa');
+  const [navigationOpen, setNavigationOpen] = useState(false);
+  useEffect(() => { if (!navigationOpen) return; const close = (event: KeyboardEvent) => { if (event.key === 'Escape') setNavigationOpen(false); }; window.addEventListener('keydown', close); return () => window.removeEventListener('keydown', close); }, [navigationOpen]);
   const [query, setQuery] = useState('');
   const [city, setCity] = useState(DEFAULT_CITY_PROFILE.name);
   const [cityProfiles, setCityProfiles] = useState<CityProfile[]>([DEFAULT_CITY_PROFILE]);
@@ -296,14 +294,13 @@ export function FibraMapApp({ cloudEnabled = false, currentUser }: FibraMapAppPr
   const [batchNameDraft, setBatchNameDraft] = useState('');
   const [storageReady, setStorageReady] = useState(false);
   const [cloudReady, setCloudReady] = useState(!cloudEnabled);
-  const [cloudStatus, setCloudStatus] = useState<'local' | 'syncing' | 'synced' | 'error'>(cloudEnabled ? 'syncing' : 'local');
+  const [, setCloudStatus] = useState<'local' | 'syncing' | 'synced' | 'error'>(cloudEnabled ? 'syncing' : 'local');
   const [toast, setToast] = useState('');
   const [clientPanelMode, setClientPanelMode] = useState<ClientPanelMode | null>('view');
   const [clientDraft, setClientDraft] = useState<ClientDraft>(() => blankClientDraft(DEFAULT_CITY_PROFILE));
   const [clientEditorBusy, setClientEditorBusy] = useState(false);
   const [clientEditorError, setClientEditorError] = useState('');
   const [positionDraft, setPositionDraft] = useState<PositionDraft | null>(null);
-  const [assistantOpen, setAssistantOpen] = useState(false);
   const [clientBubbleAnchor, setClientBubbleAnchor] = useState<{ x: number; y: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const reviewHoldTimerRef = useRef<number | null>(null);
@@ -493,12 +490,7 @@ export function FibraMapApp({ cloudEnabled = false, currentUser }: FibraMapAppPr
     ? groupMarkerId(ruralGroupDraft?.id ?? 'draft')
     : positionDraft?.clientId ?? null;
 
-  const counts = useMemo(() => {
-    return STATUS_OPTIONS.slice(1).reduce<Record<string, number>>((result, option) => {
-      result[option] = cityClients.filter((client) => client.status === option).length;
-      return result;
-    }, {});
-  }, [cityClients]);
+
 
   const handleMapSelect = useCallback((id: string) => {
     const ruralGroupId = groupIdFromMarker(id);
@@ -651,11 +643,10 @@ export function FibraMapApp({ cloudEnabled = false, currentUser }: FibraMapAppPr
         setClientPanelMode(null);
         setSelectedId(null);
       }
-      if (event.key === 'Escape' && assistantOpen) setAssistantOpen(false);
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [assistantOpen, cityOpen, clientPanelMode, importOpen, positionDraft, ruralGroupPositionDraft, ruralGroupsOpen, selectedRuralGroupId]);
+  }, [cityOpen, clientPanelMode, importOpen, positionDraft, ruralGroupPositionDraft, ruralGroupsOpen, selectedRuralGroupId]);
 
   useEffect(() => {
     if (!toast) return;
@@ -1100,6 +1091,9 @@ export function FibraMapApp({ cloudEnabled = false, currentUser }: FibraMapAppPr
       }
       const profile = await lookupCityProfile(municipality.name, newCityState, municipality.id);
       rememberCity(profile);
+      setQuery('');
+      setNavigationOpen(false);
+      setClientPanelMode(null);
       setCityOpen(false);
       setNewCity('');
       setToast(`${profile.name}/${profile.state} cadastrada e definida como cidade ativa.`);
@@ -1118,32 +1112,6 @@ export function FibraMapApp({ cloudEnabled = false, currentUser }: FibraMapAppPr
     link.download = 'modelo-clientes-fibra.csv';
     link.click();
     URL.revokeObjectURL(url);
-  }
-
-  async function downloadWorkspaceBackup() {
-    try {
-      let blob: Blob;
-      if (cloudEnabled) {
-        const response = await fetch('/api/export?format=json', { cache: 'no-store' });
-        if (!response.ok) throw new Error('Não foi possível preparar o backup.');
-        blob = await response.blob();
-      } else {
-        let leads: unknown[] = [];
-        try { leads = JSON.parse(localStorage.getItem('aster:leads:v1') || '[]') as unknown[]; } catch { leads = []; }
-        blob = new Blob([JSON.stringify({
-          exportedAt: new Date().toISOString(), clients, cities: cityProfiles, imports: history, groups: ruralGroups, leads,
-        }, null, 2)], { type: 'application/json;charset=utf-8' });
-      }
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `aster-backup-${new Date().toISOString().slice(0, 10)}.json`;
-      link.click();
-      URL.revokeObjectURL(url);
-      setToast('Backup completo exportado com sucesso.');
-    } catch (error) {
-      setToast(error instanceof Error ? error.message : 'Não foi possível exportar o backup.');
-    }
   }
 
   async function matrixFromFile(file: File): Promise<unknown[][]> {
@@ -2017,82 +1985,38 @@ export function FibraMapApp({ cloudEnabled = false, currentUser }: FibraMapAppPr
     setToast(`Importação “${batch.name}” excluída.`);
   }
 
-  function resetDemo() {
-    setClients(DEMO_CLIENTS);
-    setRuralGroups([]);
-    setSelectedRuralGroupId(null);
-    setCityProfiles([DEFAULT_CITY_PROFILE]);
-    setHistory([]);
-    setActiveBatchId('all');
-    setLocationFilter('Todos');
-    setCity(DEFAULT_CITY_PROFILE.name);
-    setStatus('Todos');
-    setPlan('Todos');
-    setQuery('');
-    setSelectedId('CLI-001');
-    setClientPanelMode('view');
-    setView('mapa');
-    setToast('Demonstração restaurada.');
-  }
+
 
   const previewReady = importPreview?.rows.filter((row) => row.issues.length === 0 && row.lat !== undefined && row.lng !== undefined).length ?? 0;
   const previewGeocode = importPreview?.rows.filter((row) => row.issues.length === 0 && row.needsGeocoding).length ?? 0;
   const previewNotLocated = importPreview?.rows.filter((row) => row.issues.length === 0 && row.lat === undefined && !row.needsGeocoding).length ?? 0;
   const previewErrors = importPreview?.rows.filter((row) => row.issues.length > 0).length ?? 0;
   const previewTotal = importPreview?.rows.length ?? 0;
-  const commandItems: CommandItem[] = [
-    { id: 'open-map', title: 'Mapa de clientes', subtitle: 'Visualizar clientes e grupos na cidade ativa', section: 'Navegação', icon: <MapPinned size={16} />, shortcut: 'M', keywords: ['localização', 'pins'], action: () => setView('mapa') },
-    { id: 'open-opportunities', title: 'Mapa de oportunidades', subtitle: 'Leads, zonas comerciais e rotas de visita', section: 'Navegação', icon: <Target size={16} />, shortcut: 'O', keywords: ['leads', 'crm', 'prospecção'], action: () => setView('oportunidades') },
-    { id: 'open-list', title: 'Lista de clientes', subtitle: 'Pesquisar, filtrar, editar ou realocar registros', section: 'Navegação', icon: <List size={16} />, shortcut: 'L', keywords: ['tabela', 'cadastro'], action: () => setView('lista') },
-    { id: 'open-imports', title: 'Histórico de importações', subtitle: 'Alternar, renomear ou excluir lotes importados', section: 'Navegação', icon: <History size={16} />, keywords: ['excel', 'planilha', 'lotes'], action: () => setView('importacoes') },
-    { id: 'new-client', title: 'Adicionar cliente', subtitle: 'Criar um cadastro manual na cidade ativa', section: 'Ações rápidas', icon: <Plus size={16} />, keywords: ['novo', 'cadastro'], action: openNewClient },
-    { id: 'new-import', title: 'Importar planilha', subtitle: 'Carregar clientes de um arquivo XLSX ou CSV', section: 'Ações rápidas', icon: <Upload size={16} />, keywords: ['excel', 'arquivo'], action: openImporter },
-    { id: 'rural-groups', title: 'Gerenciar grupos rurais', subtitle: 'Agrupar clientes em uma única localização', section: 'Ações rápidas', icon: <UsersRound size={16} />, keywords: ['vila rural', 'grupo'], action: openRuralGroups },
-    { id: 'aster-ai', title: 'Conversar com o Aster IA', subtitle: 'Pesquisar informações da operação em linguagem natural', section: 'Ações rápidas', icon: <Sparkles size={16} />, keywords: ['gemini', 'assistente'], action: () => setAssistantOpen(true) },
-    { id: 'export-workspace', title: 'Exportar backup completo', subtitle: 'Baixar uma cópia segura de toda a base', section: 'Ações rápidas', icon: <Download size={16} />, keywords: ['json', 'dados'], action: () => void downloadWorkspaceBackup() },
-    ...cityClients.slice(0, 5_000).map((client): CommandItem => ({
-      id: `client-${client.id}`,
-      title: client.name,
-      subtitle: `${client.street || 'Endereço não informado'}, ${client.number || 's/n'}${client.neighborhood ? ` · ${client.neighborhood}` : ''}`,
-      section: `Clientes em ${city}`,
-      icon: <MapPin size={16} />,
-      keywords: [client.id, client.externalId ?? '', client.zip, client.plan, client.status, client.phone ?? ''],
-      action: () => openClientFromList(client),
-    })),
-  ];
 
   return (
     <main className="app-shell">
-      <header className="topbar">
+      <WatermelonButton className="navigation-toggle" onClick={() => setNavigationOpen(!navigationOpen)} aria-label={navigationOpen ? 'Fechar menu' : 'Abrir menu'} aria-expanded={navigationOpen} aria-controls="navigation-drawer"><Menu size={22} /></WatermelonButton>
+      {navigationOpen && <button className="navigation-scrim" aria-label="Fechar menu" onClick={() => setNavigationOpen(false)} />}
+      <aside id="navigation-drawer" className={`sidebar navigation-drawer ${navigationOpen ? 'open' : ''}`} inert={!navigationOpen} aria-label="Menu do Aster">
+      <div className="drawer-tools">
         <div className="brand-block">
-          <div><strong>Aster</strong><span>Inteligência comercial</span></div>
+          <div><strong>Aster</strong></div>
         </div>
 
-        <CommandSearch
-          className="aster-command-search"
-          items={commandItems}
-          triggerLabel={`Buscar em ${city}`}
-          placeholder="Nome, rua, número, plano ou ação"
-          shortcutLabel="Ctrl K"
-          emptyLabel="Nada encontrado"
-        />
+        <ClientAutocomplete clients={cityClients} value={query} onChange={setQuery} onSelect={(client) => {
+          setQuery('');
+          setActiveBatchId('all');
+          setStatus('Todos');
+          setPlan('Todos');
+          setLocationFilter('Todos');
+          openClientFromList(client);
+          setNavigationOpen(false);
+        }} />
 
-        <div className="top-actions">
-          <WatermelonButton className="assistant-trigger" onClick={() => setAssistantOpen(true)}><Sparkles size={15} />Aster IA</WatermelonButton>
-          <Link className="design-system-link" href="/design-system">Sistema visual</Link>
-          <span className={`demo-badge cloud-${cloudStatus}`} title={cloudStatus === 'error' ? 'A cópia local continua protegendo a sessão' : undefined}>
-            {cloudEnabled ? <Cloud size={12} /> : null}{cloudStatus === 'syncing' ? 'Salvando…' : cloudStatus === 'synced' ? 'Nuvem sincronizada' : cloudStatus === 'error' ? 'Cópia local ativa' : 'Neste dispositivo'}
-          </span>
-          <WatermelonButton className="icon-button" aria-label="Exportar backup completo" title="Exportar backup completo" onClick={() => void downloadWorkspaceBackup()}><Download size={16} /></WatermelonButton>
-          <WatermelonButton className="profile-button" onClick={() => void logout()} aria-label="Sair do Aster" title="Sair do Aster">
-            <span>{(currentUser?.name || 'Stefani').slice(0, 2).toUpperCase()}</span>
-            <span className="profile-name">{currentUser?.name || 'Stefani'}<br /><small>{cloudEnabled ? 'Conta protegida' : 'Modo local'}</small></span>
-            {cloudEnabled && <LogOut size={14} />}
-          </WatermelonButton>
-        </div>
-      </header>
 
-      <aside className="sidebar">
+      </div>
+
+
         <div className="city-label">Cidade selecionada</div>
         <label className="city-picker">
           <MapPin size={17} aria-hidden="true" />
@@ -2129,26 +2053,25 @@ export function FibraMapApp({ cloudEnabled = false, currentUser }: FibraMapAppPr
           <Plus size={14} />Cadastrar nova cidade
         </WatermelonButton>
 
+        <div className="navigation-actions">
+          <WatermelonButton className="manual-button" onClick={openNewClient}><Plus size={16} />Adicionar cliente</WatermelonButton>
+          <WatermelonButton className="import-button" onClick={openImporter}><Upload size={16} />Importar planilha</WatermelonButton>
+        </div>
+
         <nav className="nav-list" aria-label="Navegação principal">
-          <WatermelonButton className={view === 'mapa' ? 'active' : ''} aria-current={view === 'mapa' ? 'page' : undefined} onClick={() => setView('mapa')}><MapPinned size={18} /><span>Mapa</span></WatermelonButton>
-          <WatermelonButton className={view === 'oportunidades' ? 'active' : ''} aria-current={view === 'oportunidades' ? 'page' : undefined} onClick={() => setView('oportunidades')}><Target size={18} /><span>Oportunidades</span></WatermelonButton>
-          <WatermelonButton className={view === 'lista' ? 'active' : ''} aria-current={view === 'lista' ? 'page' : undefined} onClick={() => setView('lista')}><List size={18} /><span>Clientes</span></WatermelonButton>
-          <WatermelonButton className={view === 'importacoes' ? 'active' : ''} aria-current={view === 'importacoes' ? 'page' : undefined} onClick={() => setView('importacoes')}><History size={18} /><span>Importações</span></WatermelonButton>
+          <WatermelonButton className={view === 'mapa' ? 'active' : ''} aria-current={view === 'mapa' ? 'page' : undefined} onClick={() => { setView('mapa'); setNavigationOpen(false); }}><MapPinned size={18} /><span>Mapa</span></WatermelonButton>
+          <WatermelonButton className={view === 'lista' ? 'active' : ''} aria-current={view === 'lista' ? 'page' : undefined} onClick={() => { setView('lista'); setNavigationOpen(false); }}><List size={18} /><span>Clientes</span></WatermelonButton>
+          <WatermelonButton className="rural-groups-button" onClick={openRuralGroups}><UsersRound size={18} />Grupos rurais <span>{cityRuralGroups.length}</span></WatermelonButton>
+          <WatermelonButton className={view === 'importacoes' ? 'active' : ''} aria-current={view === 'importacoes' ? 'page' : undefined} onClick={() => { setView('importacoes'); setNavigationOpen(false); }}><History size={18} /><span>Importações</span></WatermelonButton>
         </nav>
 
-        <WatermelonCard className="summary-card">
-          <span className="eyebrow">Visão da cidade</span>
-          <div className="total-line"><strong>{cityClients.length.toLocaleString('pt-BR')}</strong><span>clientes na base</span></div>
-          <div className="summary-row"><span><i className="dot active-dot" />Ativos</span><b>{counts.Ativo ?? 0}</b></div>
-          <div className="summary-row"><span><i className="dot install-dot" />Instalação</span><b>{counts['Instalação'] ?? 0}</b></div>
-          <div className="summary-row"><span><i className="dot alert-dot" />Atenção</span><b>{counts['Atenção'] ?? 0}</b></div>
-          <div className="summary-row"><span><i className="dot pending-dot" />Sem localização</span><b>{pendingCount}</b></div>
-        </WatermelonCard>
-
-        <WatermelonButton className="manual-button" onClick={openNewClient}><Plus size={16} />Adicionar cliente</WatermelonButton>
-        <WatermelonButton className="rural-groups-button" onClick={openRuralGroups}><UsersRound size={16} />Grupos rurais <span>{cityRuralGroups.length}</span></WatermelonButton>
-        <WatermelonButton className="import-button" onClick={openImporter}><Upload size={16} />Importar planilha</WatermelonButton>
-        <WatermelonButton className="reset-button" onClick={resetDemo}><RefreshCcw size={13} />Restaurar demonstração</WatermelonButton>
+        <div className="navigation-footer">
+          <WatermelonButton className="profile-button" onClick={() => void logout()} aria-label="Sair do Aster" title="Sair do Aster">
+            <span>{(currentUser?.name || 'Stefani').slice(0, 2).toUpperCase()}</span>
+            <span className="profile-name">{currentUser?.name || 'Stefani'}<br /><small>{cloudEnabled ? 'Conta protegida' : 'Modo local'}</small></span>
+            {cloudEnabled && <LogOut size={14} />}
+          </WatermelonButton>
+        </div>
       </aside>
 
       <section className="content-stage">
@@ -2186,7 +2109,6 @@ export function FibraMapApp({ cloudEnabled = false, currentUser }: FibraMapAppPr
               setCityOpen(true);
             }}
           ><Plus size={18} /></WatermelonButton>
-          <WatermelonButton className="mobile-assistant-trigger" onClick={() => setAssistantOpen(true)} aria-label="Abrir Aster IA"><Sparkles size={18} /></WatermelonButton>
         </div>
 
         {view === 'oportunidades' && (
@@ -2203,41 +2125,16 @@ export function FibraMapApp({ cloudEnabled = false, currentUser }: FibraMapAppPr
 
         {view === 'mapa' && (
           <>
-            <div className="map-toolbar">
-              <label className="filter-button"><SlidersHorizontal size={14} /><span>{visibleClients.length} exibidos</span></label>
-              <label className="filter-button">
-                <span className="filter-label">Status</span>
-                <WatermelonSelect value={status} onChange={(event) => setStatus(event.target.value as ClientStatus | 'Todos')}>
-                  {STATUS_OPTIONS.map((option) => <option key={option}>{option}</option>)}
-                </WatermelonSelect>
-                <ChevronDown size={13} />
-              </label>
-              <label className="filter-button">
-                <span className="filter-label">Plano</span>
-                <WatermelonSelect value={plan} onChange={(event) => setPlan(event.target.value)}>
-                  <option>Todos</option>
-                  {plans.map((option) => <option key={option}>{option}</option>)}
-                </WatermelonSelect>
-                <ChevronDown size={13} />
-              </label>
-              <label className="filter-button batch-filter">
-                <span className="filter-label">Importação</span>
-                <WatermelonSelect value={activeBatchId} onChange={(event) => { setActiveBatchId(event.target.value); setSelectedId(null); setSelectedRuralGroupId(null); setClientPanelMode(null); }}>
-                  <option value="all">Todos os registros</option>
-                  {cityHistory.map((batch) => <option key={batch.id} value={batch.id}>{batch.name} · {batch.importedAt.toLocaleDateString('pt-BR')}</option>)}
-                </WatermelonSelect>
-                <ChevronDown size={13} />
-              </label>
-              <label className="filter-button">
-                <span className="filter-label">Localização</span>
-                <WatermelonSelect value={locationFilter} onChange={(event) => setLocationFilter(event.target.value as LocationFilter)}>
-                  <option>Todos</option><option>Mapeados</option><option>Revisar</option>
-                </WatermelonSelect>
-                <ChevronDown size={13} />
-              </label>
-              <WatermelonButton className="map-add-client" onClick={openNewClient}><Plus size={15} />Novo cliente</WatermelonButton>
-              <WatermelonButton className="map-rural-groups" onClick={openRuralGroups}><UsersRound size={15} />Grupos rurais</WatermelonButton>
-            </div>
+            <div className="map-toolbar"><details className="glass-dropdown batch-filter">
+              <summary><span className="filter-label">Importação</span> {activeBatch?.name || 'Todos os registros'} <ChevronDown size={13} /></summary>
+              <div className="glass-dropdown-options">
+                {[{ id: 'all', name: 'Todos os registros' }, ...cityHistory.map((batch) => ({ id: batch.id, name: `${batch.name} · ${batch.importedAt.toLocaleDateString('pt-BR')}` }))].map((batch) =>
+                  <button type="button" key={batch.id} aria-pressed={activeBatchId === batch.id} onClick={(event) => {
+                    setActiveBatchId(batch.id); setSelectedId(null); setSelectedRuralGroupId(null); setClientPanelMode(null);
+                    event.currentTarget.closest('details')?.removeAttribute('open');
+                  }}>{batch.name}</button>)}
+              </div>
+            </details></div>
 
             <ClientMap
               clients={mapClients}
@@ -2328,14 +2225,6 @@ export function FibraMapApp({ cloudEnabled = false, currentUser }: FibraMapAppPr
                 </footer>
               </WatermelonSheet>
             )}
-
-            <div className="map-key">
-              <span><i className="dot active-dot" />Ativo</span>
-              <span><i className="dot install-dot" />Instalação</span>
-              <span><i className="dot alert-dot" />Atenção</span>
-              <span><i className="dot inactive-dot" />Inativo</span>
-              <span><UsersRound size={12} />Grupo rural</span>
-            </div>
 
             <div className="mobile-action-dock" aria-label="Ações rápidas">
               <WatermelonButton className="mobile-import-action" onClick={openImporter} aria-label="Importar planilha"><Upload size={19} /></WatermelonButton>
@@ -2520,15 +2409,6 @@ export function FibraMapApp({ cloudEnabled = false, currentUser }: FibraMapAppPr
           onSave={saveRuralGroup}
         />
       )}
-
-      <AsterAssistant
-        open={assistantOpen}
-        city={activeCityProfile}
-        clients={cityClients}
-        groups={cityRuralGroups}
-        imports={cityHistory}
-        onClose={() => setAssistantOpen(false)}
-      />
 
       {importOpen && (
         <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !importBusy) setImportOpen(false); }}>
@@ -2745,5 +2625,8 @@ export function FibraMapApp({ cloudEnabled = false, currentUser }: FibraMapAppPr
     </main>
   );
 }
+
+
+
 
 
