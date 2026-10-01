@@ -221,7 +221,11 @@ async function getDataset(ibgeId: number) {
   if (bundled) return bundled;
   const cached = datasetCache.get(ibgeId);
   if (cached) return cached;
-  const pending = downloadDataset(ibgeId).catch(() => null);
+  const pending = downloadDataset(ibgeId).catch(() => null).then((records) => {
+    // A transient download failure must not disable IBGE for the whole session.
+    if (!records) datasetCache.delete(ibgeId);
+    return records;
+  });
   datasetCache.set(ibgeId, pending);
   return pending;
 }

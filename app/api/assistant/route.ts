@@ -1,3 +1,7 @@
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+export const maxDuration = 180;
+
 import { NextResponse } from 'next/server';
 import { GeminiServiceError, GeminiMessage, generateWithGemini } from '../../lib/gemini';
 import { currentUser } from '../../lib/auth';

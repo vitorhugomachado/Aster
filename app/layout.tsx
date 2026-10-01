@@ -13,8 +13,10 @@ const geistMono = Geist_Mono({
   subsets: ['latin'],
 });
 
+const siteUrl = process.env.APP_URL || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? 'https://' + process.env.VERCEL_PROJECT_PRODUCTION_URL : 'http://localhost:3000');
+
 export const metadata: Metadata = {
-  metadataBase: new URL('https://web-production-684d7.up.railway.app'),
+  metadataBase: new URL(siteUrl),
   title: 'aster — Inteligência comercial em cada endereço',
   description: 'CRM geográfico para mapear clientes, priorizar oportunidades e planejar visitas comerciais.',
   applicationName: 'aster',
@@ -23,15 +25,15 @@ export const metadata: Metadata = {
     apple: '/brand/aster-client-pin.png',
   },
   alternates: {
-    canonical: 'https://web-production-684d7.up.railway.app',
+    canonical: siteUrl,
   },
   openGraph: {
     title: 'aster',
     description: 'Clientes, oportunidades e rotas comerciais em um único mapa.',
     type: 'website',
-    url: 'https://web-production-684d7.up.railway.app',
+    url: siteUrl,
     images: [{
-      url: 'https://web-production-684d7.up.railway.app/og.png',
+      url: new URL('/og.png', siteUrl).toString(),
       width: 1200,
       height: 630,
       alt: 'aster — Inteligência comercial em cada endereço',
@@ -41,7 +43,7 @@ export const metadata: Metadata = {
     card: 'summary_large_image',
     title: 'aster',
     description: 'Clientes, oportunidades e rotas comerciais em um único mapa.',
-    images: ['https://web-production-684d7.up.railway.app/og.png'],
+    images: [new URL('/og.png', siteUrl).toString()],
   },
 };
 

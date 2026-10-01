@@ -39,7 +39,43 @@ function configuredKey() {
 }
 
 export function isGeminiConfigured() {
-  return Boolean(configuredKey());
+  return Boolean(process.env.GROQ_API_KEY?.trim() || configuredKey());
+}
+
+async function generateWithGroq(options: GenerateOptions) {
+  try {
+    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.GROQ_API_KEY?.trim()}` },
+      signal: AbortSignal.timeout(30_000),
+      body: JSON.stringify({
+        model: process.env.GROQ_MODEL?.trim() || 'openai/gpt-oss-20b',
+        messages: [
+          { role: 'system', content: options.systemInstruction },
+          ...options.messages.map((message) => ({ role: message.role === 'model' ? 'assistant' : 'user', content: message.text })),
+        ],
+        temperature: options.temperature ?? 0.2,
+        max_completion_tokens: options.maxOutputTokens ?? 1_600,
+        ...(options.responseJsonSchema ? { response_format: { type: 'json_schema', json_schema: {
+          name: 'address_review', strict: true,
+          schema: { ...options.responseJsonSchema, additionalProperties: false },
+        } } } : {}),
+      }),
+    });
+    if (!response.ok) {
+      const message = response.status === 429 ? 'Limite de uso da Groq atingido. Aguarde e tente novamente.'
+        : [401, 403].includes(response.status) ? 'Groq recusou o acesso. Confira a chave e as permissões.'
+          : 'A Groq não conseguiu processar a solicitação. Tente novamente.';
+      throw new GeminiServiceError(message, response.status === 429 ? 429 : 503);
+    }
+    const data = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
+    const text = data.choices?.[0]?.message?.content?.trim();
+    if (!text) throw new GeminiServiceError('A Groq não retornou uma resposta.', 502);
+    return text;
+  } catch (error) {
+    if (error instanceof GeminiServiceError) throw error;
+    throw new GeminiServiceError('Falha temporária ao consultar a Groq.', 502);
+  }
 }
 
 export async function generateWithGemini({
@@ -49,6 +85,9 @@ export async function generateWithGemini({
   temperature = 0.2,
   responseJsonSchema,
 }: GenerateOptions) {
+  if (process.env.GROQ_API_KEY?.trim()) {
+    return generateWithGroq({ messages, systemInstruction, maxOutputTokens, temperature, responseJsonSchema });
+  }
   const apiKey = configuredKey();
   if (!apiKey) {
     throw new GeminiServiceError('O assistente Gemini ainda não foi configurado no servidor.', 503);

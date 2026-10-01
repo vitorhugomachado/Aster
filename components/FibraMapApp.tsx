@@ -172,6 +172,9 @@ function recordFromParsed(row: ParsedClient): ClientRecord {
     originalStreet: row.originalStreet,
     originalNeighborhood: row.originalNeighborhood,
     addressAiNote: row.addressAiNote,
+    confirmationSource: row.confirmationSource,
+    selectedCandidateId: row.selectedCandidateId,
+    addressDecisionHistory: row.addressDecisionHistory,
     locationQuality: row.locationQuality,
     source: row.source,
     importBatchId: row.importBatchId,
@@ -522,7 +525,7 @@ export function FibraMapApp({ cloudEnabled = false, currentUser }: FibraMapAppPr
     });
   }, []);
 
-  const startPositioning = useCallback((id: string, returnMode: 'view' | 'edit' = 'view') => {
+  const startPositioning = useCallback(async (id: string, returnMode: 'view' | 'edit' = 'view') => {
     const ruralGroupId = groupIdFromMarker(id);
     if (ruralGroupId) {
       const group = ruralGroupId === 'draft'
@@ -555,8 +558,27 @@ export function FibraMapApp({ cloudEnabled = false, currentUser }: FibraMapAppPr
       setToast('Posicione o marcador central do grupo e confirme.');
       return;
     }
-    const client = clients.find((item) => item.id === id);
+    let client = clients.find((item) => item.id === id);
     if (!client) return;
+    if (client.lat === undefined && client.suggestedLat === undefined && client.street && client.number) {
+      setToast('Buscando o endereço provável para posicionar no mapa…');
+      try {
+        const response = await fetch('/api/geocode', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ street: client.street, number: client.number, neighborhood: client.neighborhood,
+            city: client.city, state: client.state, zip: client.zip }) });
+        const result = await response.json() as { lat?: number; lng?: number; message?: string;
+          suggestedLocation?: { lat?: number; lng?: number }; suggestedAddress?: string; suggestionSource?: string; aiReviewNote?: string };
+        // An exact retry is still a preview here: manual positioning needs confirmation.
+        client = { ...client, suggestedLat: result.lat ?? result.suggestedLocation?.lat,
+          suggestedLng: result.lng ?? result.suggestedLocation?.lng,
+          suggestedAddress: result.suggestedAddress, suggestionSource: result.suggestionSource,
+          pendingReason: result.message ?? client.pendingReason, addressAiNote: result.aiReviewNote ?? client.addressAiNote };
+        const updated = client;
+        setClients((current) => current.map((item) => item.id === id ? updated : item));
+      } catch {
+        client = { ...client, pendingReason: 'Falha de conexão ao buscar o endereço provável. Tente novamente.' };
+      }
+    }
     const draftLat = returnMode === 'edit' ? asNumber(normalizeText(clientDraft.lat).replace(',', '.')) : undefined;
     const draftLng = returnMode === 'edit' ? asNumber(normalizeText(clientDraft.lng).replace(',', '.')) : undefined;
     const lat = draftLat ?? client.lat ?? client.suggestedLat ?? activeCityProfile?.center?.lat;
@@ -573,7 +595,10 @@ export function FibraMapApp({ cloudEnabled = false, currentUser }: FibraMapAppPr
     setClientBubbleAnchor(null);
     setLocationFilter('Todos');
     setView('mapa');
-    setToast('Modo de posicionamento ativo: arraste o pin ou toque no mapa e confirme.');
+    setToast(client.suggestedLat !== undefined
+      ? 'Mapa aberto no endereço provável. Ajuste o pin e confirme a localização.'
+      : client.lat !== undefined ? 'Ajuste o pin ou toque no mapa e confirme.'
+        : `${client.pendingReason || 'Endereço provável não localizado.'} O mapa foi aberto no centro da cidade para posicionamento manual.`);
   }, [activeCityProfile?.center?.lat, activeCityProfile?.center?.lng, clientDraft.lat, clientDraft.lng, clients, ruralGroupDraft, ruralGroupPositionDraft, ruralGroups]);
 
   const handlePositionChange = useCallback((id: string, lat: number, lng: number) => {
@@ -1311,6 +1336,7 @@ export function FibraMapApp({ cloudEnabled = false, currentUser }: FibraMapAppPr
         'street' | 'neighborhood' | 'lat' | 'lng' | 'suggestedLat' | 'suggestedLng' | 'suggestedAddress'
         | 'suggestionSource' | 'pendingReason' | 'locationQuality' | 'addressAdjustedByAi'
         | 'originalStreet' | 'originalNeighborhood' | 'addressAiNote'
+        | 'confirmationSource' | 'selectedCandidateId' | 'addressDecisionHistory'
       >>>();
       setGeocodeProgress({ done: 0, total: indexesToLocate.length });
       for (let start = 0; start < indexesToLocate.length; start += 5) {
@@ -1340,6 +1366,9 @@ export function FibraMapApp({ cloudEnabled = false, currentUser }: FibraMapAppPr
               originalStreet: resolved.originalStreet,
               originalNeighborhood: resolved.originalNeighborhood,
               addressAiNote: resolved.addressAiNote,
+              confirmationSource: resolved.confirmationSource,
+              selectedCandidateId: resolved.selectedCandidateId,
+              addressDecisionHistory: resolved.addressDecisionHistory,
             }));
             geocodeCache.set(addressKey, cachedLocation);
           }
@@ -1388,6 +1417,12 @@ export function FibraMapApp({ cloudEnabled = false, currentUser }: FibraMapAppPr
       suggestedLocation?: { lat?: number; lng?: number };
       suggestedAddress?: string;
       suggestionSource?: string;
+      reviewedByAi?: boolean;
+      confirmationSource?: 'groq';
+      selectedCandidateId?: string;
+      decision?: string;
+      aiReviewNote?: string;
+      correctedAddress?: Pick<ParsedClient, 'street' | 'number' | 'neighborhood' | 'city' | 'state' | 'zip'>;
     };
     const requestLocation = async (address: Pick<ParsedClient, 'street' | 'number' | 'neighborhood' | 'city' | 'state' | 'zip'>) => {
       const response = await fetch('/api/geocode', {
@@ -1404,11 +1439,30 @@ export function FibraMapApp({ cloudEnabled = false, currentUser }: FibraMapAppPr
 
     try {
       const firstAttempt = await requestLocation(row);
+      const reviewed = firstAttempt.result;
+      const decisionHistory = reviewed.reviewedByAi ? [...(base.addressDecisionHistory || []), {
+        at: new Date().toISOString(), decision: reviewed.decision || 'revisar',
+        reason: reviewed.aiReviewNote || reviewed.message || 'Revisão por IA',
+        originalStreet: row.street, correctedStreet: reviewed.correctedAddress?.street || reviewed.correctedStreet || row.street,
+        number: row.number, candidateId: reviewed.selectedCandidateId,
+      }] : base.addressDecisionHistory;
+      const revisedBase: ClientRecord = reviewed.correctedAddress ? {
+        ...base,
+        street: reviewed.correctedAddress.street,
+        neighborhood: reviewed.correctedAddress.neighborhood,
+        originalStreet: base.originalStreet || row.street,
+        originalNeighborhood: base.originalNeighborhood || row.neighborhood,
+        addressAdjustedByAi: true,
+        addressAiNote: reviewed.aiReviewNote,
+      } : { ...base, addressAiNote: reviewed.aiReviewNote || base.addressAiNote };
       if (firstAttempt.response.ok && hasExactLocation(firstAttempt.result)) {
         return {
-          ...base,
-          street: firstAttempt.result.correctedStreet || base.street,
-          originalStreet: firstAttempt.result.correctedStreet ? (base.originalStreet || base.street) : base.originalStreet,
+          ...revisedBase,
+          confirmationSource: reviewed.confirmationSource,
+          addressDecisionHistory: decisionHistory,
+          selectedCandidateId: reviewed.selectedCandidateId,
+          street: firstAttempt.result.correctedStreet || revisedBase.street,
+          originalStreet: firstAttempt.result.correctedStreet ? (revisedBase.originalStreet || base.street) : revisedBase.originalStreet,
           lat: firstAttempt.result.lat,
           lng: firstAttempt.result.lng,
           suggestedLat: undefined,
@@ -1423,7 +1477,8 @@ export function FibraMapApp({ cloudEnabled = false, currentUser }: FibraMapAppPr
       const canReviewSpelling = ([404, 422].includes(firstAttempt.response.status)
         || (firstAttempt.response.status === 503 && firstAttempt.result.code === 'geocoder_not_configured'))
         && firstAttempt.result.code !== 'invalid_city'
-        && firstAttempt.result.code !== 'outside_active_city';
+        && firstAttempt.result.code !== 'outside_active_city'
+        && firstAttempt.result.reviewedByAi !== true;
       if (canReviewSpelling) {
         try {
           const suggestionResponse = await fetch('/api/address-suggestion', {
@@ -1455,7 +1510,7 @@ export function FibraMapApp({ cloudEnabled = false, currentUser }: FibraMapAppPr
                 originalStreet: row.street,
                 originalNeighborhood: row.neighborhood,
                 addressAdjustedByAi: true,
-                addressAiNote: suggestion.reason || 'Ortografia ajustada pelo Gemini e localização confirmada pelo geocodificador.',
+                addressAiNote: suggestion.reason || 'Endereço revisado pela IA e localização confirmada pelo geocodificador.',
                 lat: retry.result.lat,
                 lng: retry.result.lng,
                 suggestedLat: undefined,
@@ -1474,7 +1529,10 @@ export function FibraMapApp({ cloudEnabled = false, currentUser }: FibraMapAppPr
 
       const result = firstAttempt.result;
       return {
-        ...base,
+        ...revisedBase,
+        confirmationSource: undefined,
+        addressDecisionHistory: decisionHistory,
+        selectedCandidateId: undefined,
         pendingReason: result.message || 'Endereço não confirmado dentro da cidade ativa.',
         suggestedLat: typeof result.suggestedLocation?.lat === 'number' ? result.suggestedLocation.lat : undefined,
         suggestedLng: typeof result.suggestedLocation?.lng === 'number' ? result.suggestedLocation.lng : undefined,
@@ -1565,6 +1623,8 @@ export function FibraMapApp({ cloudEnabled = false, currentUser }: FibraMapAppPr
       ...withResolvedLocation(client, {
         lat: positionDraft.lat,
         lng: positionDraft.lng,
+        confirmationSource: undefined,
+        selectedCandidateId: undefined,
         suggestedLat: undefined,
         suggestedLng: undefined,
         suggestedAddress: undefined,
@@ -1803,7 +1863,15 @@ export function FibraMapApp({ cloudEnabled = false, currentUser }: FibraMapAppPr
     setClientEditorBusy(false);
     setToast(resolved.lat !== undefined
       ? `${resolved.name} foi localizado novamente.`
-      : 'O endereço ainda não foi confirmado. Você pode editar ou informar coordenadas manuais.');
+      : resolved.pendingReason || 'Endereço não localizado. Confira os dados informados.');
+    if (resolved.lat === undefined && resolved.suggestedLat !== undefined && resolved.suggestedLng !== undefined) {
+      setPositionDraft({ clientId: resolved.id, lat: resolved.suggestedLat, lng: resolved.suggestedLng, returnMode: 'view' });
+      setClientDraft(draftFromClient(resolved));
+      setClientPanelMode(null);
+      setClientBubbleAnchor(null);
+      setView('mapa');
+      setLocationFilter('Todos');
+    }
   }
 
   async function confirmImport() {
@@ -2533,7 +2601,7 @@ export function FibraMapApp({ cloudEnabled = false, currentUser }: FibraMapAppPr
                         : row.needsGeocoding
                           ? <span className="row-pending">localizando automaticamente</span>
                           : row.lat !== undefined
-                            ? <span className="row-ready">{row.addressAdjustedByAi ? 'corrigido pelo Gemini · coordenadas confirmadas' : 'coordenadas confirmadas'}</span>
+                            ? <span className="row-ready">{row.addressAdjustedByAi ? 'corrigido pela IA · coordenadas confirmadas' : 'coordenadas confirmadas'}</span>
                             : <span className="row-incomplete">{row.pendingReason || 'endereço não confirmado'}</span>}
                       </td>
                     </tr>

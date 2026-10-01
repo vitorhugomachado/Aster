@@ -41,6 +41,9 @@ export interface ClientRecord {
   originalStreet?: string;
   originalNeighborhood?: string;
   addressAiNote?: string;
+  confirmationSource?: 'groq';
+  selectedCandidateId?: string;
+  addressDecisionHistory?: Array<{ at: string; decision: string; reason: string; originalStreet: string; correctedStreet: string; number: string; candidateId?: string }>;
   locationQuality: LocationQuality;
   source: 'demo' | 'importação' | 'manual';
   importBatchId?: string;

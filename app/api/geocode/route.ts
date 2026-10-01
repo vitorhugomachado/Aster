@@ -1,9 +1,15 @@
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+export const maxDuration = 180;
+
 import { geocodeError } from '../../lib/geocode-errors';
 import { NextResponse } from 'next/server';
 import { lookupCnefeAddress } from '../../data/cnefe';
 import { findMunicipality, findMunicipalityByName } from '../../data/municipalities';
 import { currentUser } from '../../lib/auth';
 import { consumeUsage, databaseConfigured } from '../../lib/db';
+import { POST as reviewAddress } from '../address-suggestion/route';
+import { decideAddress, type LocationCandidate } from '../../lib/address-decision';
 
 interface GeocodePayload {
   street?: string;
@@ -190,7 +196,7 @@ function allowRequest(request: Request) {
   return current.count <= MAX_REQUESTS_PER_WINDOW;
 }
 
-export async function POST(request: Request) {
+async function locateAddress(request: Request, collect = false) {
   const contentLength = Number(request.headers.get('content-length') ?? 0);
   if (contentLength > 4096) {
     return NextResponse.json({ message: 'Requisição muito grande.' }, { status: 413 });
@@ -223,7 +229,9 @@ export async function POST(request: Request) {
   const requestedIbgeId = Number(payload.ibgeId);
 
   if (!street || !number || !city || !state) {
-    return NextResponse.json({ message: 'Endereço incompleto para geocodificação.' }, { status: 400 });
+    const missing = [['rua', street], ['número', number], ['cidade', city], ['UF', state]]
+      .filter(([, value]) => !value).map(([label]) => label);
+    return NextResponse.json({ code: 'incomplete_address', message: `Endereço incompleto: informe ${missing.join(', ')}.` }, { status: 400 });
   }
 
   const municipality = Number.isInteger(requestedIbgeId)
@@ -244,6 +252,15 @@ export async function POST(request: Request) {
     zip,
   );
   if (cnefeMatch?.precision === 'exact') {
+    if (!Number.isFinite(cnefeMatch.lat) || !Number.isFinite(cnefeMatch.lng)
+      || Math.abs(cnefeMatch.lat) > 90 || Math.abs(cnefeMatch.lng) > 180
+      || distanceKm(municipality, cnefeMatch) > 150) {
+      return reviewResponse('outside_active_city', 'O ponto do IBGE não corresponde à região da cidade selecionada.');
+    }
+    if (collect) return NextResponse.json({ candidates: [{ id: 'ibge:0', lat: cnefeMatch.lat, lng: cnefeMatch.lng,
+      source: 'IBGE_CNEFE', formattedAddress: cnefeMatch.matchedAddress,
+      numberMatched: true, streetMatched: true, precision: 'exata',
+    }], correctedStreet: cnefeMatch.correctedStreet });
     return NextResponse.json({
       lat: cnefeMatch.lat,
       lng: cnefeMatch.lng,
@@ -269,6 +286,100 @@ export async function POST(request: Request) {
         formattedAddress: `${cnefeMatch.matchedAddress}, ${municipality.name} - ${state}, Brasil`,
       }
     : undefined;
+
+  // A configured Geoapify key selects the free provider; never fall back to
+  // paid Google requests when its quota or service is unavailable.
+  const geoapifyKey = process.env.GEOAPIFY_API_KEY?.trim();
+  if (geoapifyKey) {
+    // Use the official street spelling/type already matched by CNEFE,
+    // including when its house-number coordinates are only interpolated.
+    const cnefeStreet = cnefeMatch?.matchedAddress.slice(0, cnefeMatch.matchedAddress.lastIndexOf(',')).trim();
+    const searchStreet = cnefeMatch?.correctedStreet || cnefeStreet || street;
+    const url = new URL('https://api.geoapify.com/v1/geocode/search');
+    for (const [key, value] of Object.entries({
+      housenumber: number, street: searchStreet, city: municipality.name, state,
+      country: 'Brazil', ...(zip ? { postcode: zip.replace(/\D/g, '') } : {}),
+      filter: 'countrycode:br', bias: `proximity:${municipality.lng},${municipality.lat}`,
+      lang: 'pt', format: 'json', limit: '5', apiKey: geoapifyKey,
+    })) url.searchParams.set(key, value);
+    try {
+      const response = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(15_000) });
+      if (!response.ok) {
+        const denied = [401, 403].includes(response.status);
+        return NextResponse.json({ code: response.status === 429 ? 'rate_limited' : denied ? 'geocoder_denied' : 'geocoder_unavailable', message: response.status === 429 ? 'Limite de consultas do Geoapify atingido. Tente mais tarde.' : denied ? 'Geoapify recusou o acesso. Confira a chave e suas restrições.' : 'Serviço Geoapify temporariamente indisponível. Tente novamente mais tarde.' }, { status: response.status === 429 ? 429 : 503 });
+      }
+      const data = await response.json() as { results?: Array<{
+        lat?: number; lon?: number; country_code?: string; city?: string;
+        state?: string; state_code?: string; street?: string; housenumber?: string;
+        postcode?: string; formatted?: string; result_type?: string; place_id?: string;
+        rank?: { confidence?: number; confidence_building_level?: number; match_type?: string };
+      }> };
+      const candidates = (data.results ?? []).filter((item) =>
+        item.country_code === 'br' && exact(city, item.city ?? '')
+        && exactState(state, item.state_code || item.state || '')
+        && typeof item.lat === 'number' && Number.isFinite(item.lat)
+        && typeof item.lon === 'number' && Number.isFinite(item.lon)
+        && Math.abs(item.lat) <= 90 && Math.abs(item.lon) <= 180
+        && distanceKm(municipality, { lat: item.lat, lng: item.lon }) <= 150,
+      ).map((item) => ({ item, checks: {
+        number: exact(number, item.housenumber ?? ''), street: exactStreet(street, item.street ?? ''),
+        city: true, state: true, zip: exact(zip.replace(/\D/g, ''), (item.postcode ?? '').replace(/\D/g, '')),
+      } }));
+      if (collect) {
+        const collected: LocationCandidate[] = candidates.map(({ item, checks }, index) => ({
+          id: `geoapify:${index}`, lat: item.lat!, lng: item.lon!, source: 'GEOAPIFY',
+          formattedAddress: item.formatted ?? '', numberMatched: checks.number, streetMatched: checks.street,
+          precision: item.result_type === 'building' && (item.rank?.confidence_building_level ?? 0) >= 0.95 ? 'exata' : 'aproximada',
+          evidence: { checks, resultType: item.result_type, rank: item.rank },
+        }));
+        if (approximateCnefeSuggestion) collected.push({ id: 'ibge:estimated',
+          ...approximateCnefeSuggestion, numberMatched: false, streetMatched: true, precision: 'aproximada' });
+        return NextResponse.json({ candidates: collected,
+          ...(searchStreet !== street ? { correctedStreet: searchStreet } : {}) });
+      }
+      const confirmed = candidates.find(({ item, checks }) => Object.values(checks).every(Boolean)
+        && item.result_type === 'building' && item.rank?.match_type === 'full_match'
+        && (item.rank.confidence ?? 0) >= 0.95 && (item.rank.confidence_building_level ?? 0) >= 0.95);
+      if (confirmed) {
+        const { item, checks } = confirmed;
+        return NextResponse.json({ lat: item.lat, lng: item.lon, quality: 'exata',
+          source: 'GEOAPIFY', locationType: 'GEOAPIFY_BUILDING', partialMatch: false,
+          checks, formattedAddress: item.formatted ?? '', placeId: item.place_id ?? '',
+          ...(searchStreet !== street ? { correctedStreet: searchStreet } : {}),
+        }, { headers: { 'Cache-Control': 'no-store' } });
+      }
+      const streetCandidate = candidates.find(({ checks }) => checks.street);
+      const suggestion = streetCandidate?.item;
+      let code = 'address_not_found';
+      let message = 'Endereço não localizado nas bases consultadas. Confira o nome da rua, número e CEP.';
+      if ((data.results ?? []).length > 0 && candidates.length === 0) {
+        code = 'outside_active_city';
+        message = 'Os resultados encontrados não correspondem à cidade e UF selecionadas ou estão longe da cidade. Confira o município e o CEP.';
+      } else if (candidates.length > 0 && !streetCandidate) {
+        code = 'street_not_confirmed';
+        message = 'A cidade foi encontrada, mas a rua informada não foi confirmada. Confira a grafia e o tipo de logradouro.';
+      } else if (streetCandidate && !streetCandidate.checks.number) {
+        code = 'number_not_confirmed';
+        message = `Rua localizada, mas o número ${number} não foi confirmado. O ponto sugerido é aproximado; confira o imóvel no mapa.`;
+      } else if (streetCandidate && !streetCandidate.checks.zip) {
+        code = 'postcode_mismatch';
+        message = 'Rua e número encontrados, mas o CEP retornado diverge do informado. Confira o CEP e o ponto sugerido.';
+      } else if (streetCandidate) {
+        code = 'insufficient_precision';
+        message = streetCandidate.item.result_type !== 'building'
+          ? 'Rua e número correspondentes, mas a localização retornada não tem precisão de imóvel. Confirme o ponto no mapa.'
+          : 'Rua e número encontrados, mas a confiança na posição do imóvel é insuficiente para confirmação automática. Confira o ponto sugerido.';
+      }
+      if (!suggestion && approximateCnefeSuggestion) {
+        code = 'insufficient_precision';
+        message = `O IBGE identificou ${searchStreet}, mas não confirmou a posição exata do número ${number}. O ponto sugerido foi estimado entre imóveis vizinhos. Ajuste e confirme no mapa.`;
+      }
+      return reviewResponse(code, message,
+        suggestion ? { lat: suggestion.lat!, lng: suggestion.lon!, source: 'GEOAPIFY', formattedAddress: suggestion.formatted } : approximateCnefeSuggestion);
+    } catch {
+      return NextResponse.json({ code: 'geocoder_unavailable', message: 'Falha temporária no Geoapify. Tente novamente.' }, { status: 502 });
+    }
+  }
 
   if (!addressValidationKey && !geocodingKey) {
     if (approximateCnefeSuggestion) {
@@ -521,5 +632,70 @@ export async function POST(request: Request) {
       { message: 'Falha temporária na geocodificação.' },
       { status: 502, headers: { 'Cache-Control': 'no-store' } },
     );
+  }
+}
+
+// All confirmations are decided by Groq when configured.
+export async function POST(request: Request) {
+  if (!process.env.GROQ_API_KEY?.trim()) return locateAddress(request);
+  const replay = request.clone();
+  const first = await locateAddress(request, true);
+  const data = await first.json() as Record<string, unknown>;
+  if (!first.ok && ['invalid_city', 'incomplete_address'].includes(String(data.code))) return NextResponse.json(data, { status: first.status });
+  if ([401, 413, 429].includes(first.status)) return NextResponse.json(data, { status: first.status });
+  const payload = await replay.json() as GeocodePayload;
+  const candidates = (Array.isArray(data.candidates) ? data.candidates : []) as LocationCandidate[];
+  if (typeof data.lat === 'number' && typeof data.lng === 'number') candidates.push({
+    id: 'base:0', lat: data.lat, lng: data.lng, source: String(data.source),
+    formattedAddress: String(data.formattedAddress ?? ''), numberMatched: true, streetMatched: true,
+    precision: data.quality === 'exata' ? 'exata' : 'aproximada',
+  });
+  let correctedAddress: GeocodePayload | undefined = typeof data.correctedStreet === 'string'
+    ? { ...payload, street: data.correctedStreet } : undefined;
+  const headers = new Headers(replay.headers);
+  headers.delete('content-length');
+  const internalRequest = (body: unknown) => new Request(replay.url, { method: 'POST', headers, body: JSON.stringify(body) });
+  const answer = (body: unknown, status = 422) => NextResponse.json(body, { status, headers: { 'Cache-Control': 'no-store' } });
+  const metadata = () => ({ reviewedByAi: true, confirmationSource: 'groq', ...(correctedAddress ? { correctedAddress } : {}) });
+  const suggestion = (candidate?: LocationCandidate) => candidate ? {
+    suggestedLocation: { lat: candidate.lat, lng: candidate.lng }, suggestionSource: candidate.source,
+    suggestedAddress: candidate.formattedAddress,
+  } : {};
+  try {
+    if (!candidates.some((item) => item.numberMatched && item.streetMatched) && first.ok) {
+      const review = await reviewAddress(internalRequest({ ...payload,
+        locationEvidence: { code: data.code, message: data.message, suggestedAddress: candidates[0]?.formattedAddress } }));
+      if (!review.ok) throw new Error('Revisão indisponível');
+      const correction = await review.json() as { changed?: boolean; address?: GeocodePayload };
+      if (correction.changed && correction.address) {
+        correctedAddress = { ...payload, street: correction.address.street, neighborhood: correction.address.neighborhood };
+        const retry = await locateAddress(internalRequest(correctedAddress), true);
+        const retryData = await retry.json() as { candidates?: LocationCandidate[] };
+        if (retry.ok && Array.isArray(retryData.candidates)) {
+          candidates.push(...retryData.candidates.map((item) => ({ ...item, id: `retry:${item.id}` })));
+        }
+      }
+    }
+    const decision = await decideAddress({ original: payload, corrected: correctedAddress }, candidates);
+    const selected = decision.candidate;
+    if (decision.decision === 'confirmar' && selected) return answer({
+      ...metadata(), decision: 'confirmar', selectedCandidateId: selected.id, aiReviewNote: decision.reason,
+      lat: selected.lat, lng: selected.lng, quality: selected.precision, source: selected.source,
+      locationType: 'AI_SELECTED', formattedAddress: selected.formattedAddress,
+    }, 200);
+    const numberFound = candidates.some((item) => item.numberMatched && item.streetMatched);
+    return answer({ ...metadata(), decision: decision.decision, selectedCandidateId: selected?.id,
+      code: !numberFound && candidates.some((item) => item.streetMatched) ? 'number_not_found' : decision.decision === 'nao_localizado' ? 'address_not_found' : 'address_requires_review',
+      message: !numberFound && candidates.some((item) => item.streetMatched) ? `Numeração não localizada: ${payload.number}. ${decision.reason}` : decision.reason,
+      aiReviewNote: decision.reason, ...suggestion(selected || candidates.find((item) => item.streetMatched)),
+    });
+  } catch {
+    const fallback = candidates.find((item) => item.streetMatched);
+    return answer({ ...metadata(), confirmationSource: null, decision: 'revisar',
+      code: fallback && !candidates.some((item) => item.numberMatched && item.streetMatched) ? 'number_not_found' : 'ai_review_unavailable',
+      message: fallback && !candidates.some((item) => item.numberMatched && item.streetMatched)
+        ? `Numeração não localizada: ${payload.number}. A IA não concluiu uma decisão válida; confira o ponto aproximado da rua.`
+        : 'A IA não concluiu uma decisão válida. Revise o ponto sugerido ou tente novamente.',
+      aiReviewNote: 'Confirmação automática suspensa: decisão da IA indisponível ou inválida.', ...suggestion(fallback) });
   }
 }

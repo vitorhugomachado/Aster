@@ -1,3 +1,7 @@
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+export const maxDuration = 180;
+
 import { NextResponse } from 'next/server';
 
 export async function GET() {

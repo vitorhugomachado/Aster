@@ -169,13 +169,22 @@ export function ClientPanel({
             {client.originalStreet && !client.addressAdjustedByAi && client.originalStreet !== client.street && (
               <div className="client-ai-adjustment"><span><b>Grafia corrigida pelo cadastro do IBGE</b><small>{client.originalStreet} → {client.street}</small></span></div>
             )}
-            {client.addressAdjustedByAi && (
+            {(client.addressAdjustedByAi || client.addressAiNote) && (
               <div className="client-ai-adjustment">
                 <Sparkles size={14} />
-                <span><b>Ortografia revisada pelo Gemini</b><small>{client.addressAiNote || 'Endereço corrigido e depois confirmado pelo geocodificador.'}</small></span>
+                <span><b>{client.confirmationSource === 'groq' && locationReady ? 'Confirmado pela IA' : 'Análise de endereço pela IA'}</b><small>{client.addressAiNote || 'Endereço revisado e consultado nas bases de localização.'}</small>{client.confirmationSource === 'groq' && locationReady && <small>Precisão {client.locationQuality === 'exata' ? 'exata' : 'aproximada'}</small>}{client.originalStreet && client.originalStreet !== client.street && <small>{client.originalStreet} → {client.street}</small>}</span>
               </div>
             )}
 
+            {!!client.addressDecisionHistory?.length && (
+              <details className="client-ai-adjustment">
+                <summary>Histórico de análise do endereço</summary>
+                <div>{client.addressDecisionHistory.map((entry, index) => <p key={`${entry.at}:${index}`}>
+                  <b>{new Date(entry.at).toLocaleString('pt-BR')} · {entry.decision === 'confirmar' ? 'Confirmado pela IA' : entry.decision === 'nao_localizado' ? 'Não localizado' : 'Revisar'}</b><br />
+                  {entry.originalStreet !== entry.correctedStreet ? `${entry.originalStreet} → ${entry.correctedStreet}` : entry.originalStreet}, {entry.number}<br />{entry.reason}
+                </p>)}</div>
+              </details>
+            )}
             <div className="client-quick-facts">
               <span><small>Plano</small><b>{shown(client.plan)}</b></span>
               <span><small>Contato</small><b>{shown(client.phone || client.email)}</b></span>

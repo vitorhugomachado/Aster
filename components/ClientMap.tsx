@@ -191,10 +191,12 @@ export function ClientMap({
               google.maps.MapTypeId.ROADMAP,
               google.maps.MapTypeId.SATELLITE,
               google.maps.MapTypeId.HYBRID,
+              google.maps.MapTypeId.TERRAIN,
             ],
           },
           streetViewControl: false,
           fullscreenControl: false,
+          scaleControl: true,
           clickableIcons: false,
           gestureHandling: 'greedy',
           draggable: true,
@@ -670,7 +672,7 @@ export function ClientMap({
             <WatermelonButton onClick={() => changeZoom(-1)} aria-label="Afastar mapa"><Minus size={17} /></WatermelonButton>
             <WatermelonButton onClick={resetMapView} aria-label="Mostrar cidade inteira"><LocateFixed size={17} /></WatermelonButton>
           </div>
-          <div className="map-interaction-hint">Role para zoom · arraste para mover · Ctrl + / −</div>
+          <div className="map-interaction-hint">Role para zoom · arraste para mover · Ctrl + / − · <a href="https://www.geoapify.com/" target="_blank" rel="noopener">Powered by Geoapify</a> · <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap contributors</a></div>
         </>
       )}
     </div>

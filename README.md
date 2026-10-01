@@ -34,9 +34,12 @@ Use Node.js 22.13 ou superior e configure as variáveis:
 
 ```env
 GOOGLE_MAPS_BROWSER_KEY=
+GEOAPIFY_API_KEY=
 GOOGLE_MAPS_GEOCODING_KEY=
 GOOGLE_MAPS_ADDRESS_VALIDATION_KEY=
 GEMINI_API_KEY=
+GROQ_API_KEY=
+GROQ_MODEL=openai/gpt-oss-20b
 GEMINI_MODEL=gemini-3.1-flash-lite
 DATABASE_URL=
 ASTER_BOOTSTRAP_TOKEN=
@@ -47,7 +50,13 @@ A chave de navegador deve ser restrita ao Maps JavaScript API e aos domínios au
 
 Na primeira execução com banco configurado, a tela de acesso solicita o `ASTER_BOOTSTRAP_TOKEN` para criar o primeiro administrador. Depois disso, o código não é mais aceito para novos cadastros.
 
+Com GEOAPIFY_API_KEY configurada, o sistema usa IBGE/CNEFE e Geoapify, sem recorrer ao Google para geocodificação. Com GROQ_API_KEY, a Groq dá a decisão final, inclusive para candidatos de baixa confiança; não há bloqueio obrigatório em 0,95. As chaves permanecem no .env.local ignorado pelo Git.
+
 ## Desenvolvimento
+
+O endpoint `/api/geocode` coleta candidatos IBGE/Geoapify e consulta a Groq para a decisão final: confirmar, revisar ou não localizado. Confiança do provedor é apenas evidência interna. A IA seleciona somente pontos existentes, com número e rua correspondentes; município/UF e coordenadas são verificados pelo servidor. Uma busca adicional por nomenclatura corrigida é permitida. O número nunca é alterado; ausência de correspondência gera Numeração não localizada. Falhas de IA mantêm revisão e sugestão. A resposta inclui decision, confirmationSource, selectedCandidateId, aiReviewNote e correctedAddress. Precisão e confirmação são independentes; a interface mostra Confirmado pela IA e conserva o histórico das decisões.
+
+Com `GROQ_API_KEY` configurada, a revisão de endereços e o Aster IA usam Groq, sem fallback para Gemini. A revisão recebe apenas campos de endereço e candidatos do IBGE. A IA decide entre candidatos coletados; não cria coordenadas nem altera números. Consulte as cotas do plano gratuito no console Groq.
 
 ```bash
 npm install
@@ -64,3 +73,8 @@ npm run build
 ```
 
 O endpoint `GET /api/health` é usado pelo health check da hospedagem.
+
+## Supabase e Vercel
+
+Produção usa Next.js. Configure DATABASE_URL com o Transaction pooler Supabase (porta 6543), ASTER_BOOTSTRAP_TOKEN e as chaves de API no ambiente da Vercel. Use APP_URL para o domínio público. Execute npm run db:setup para aplicar supabase/migrations/202610010001_aster.sql. vercel.json define o preset Next.js e região iad1; .env.local não é versionado.
+
