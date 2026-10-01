@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 180;
 
 import { geocodeError } from '../../lib/geocode-errors';
+import { addressSearchVariants } from '../../lib/address-search';
 import { GeminiServiceError } from '../../lib/gemini';
 import { NextResponse } from 'next/server';
 import { lookupCnefeAddress } from '../../data/cnefe';
@@ -315,7 +316,28 @@ async function locateAddress(request: Request, collect = false) {
         postcode?: string; formatted?: string; result_type?: string; place_id?: string;
         rank?: { confidence?: number; confidence_building_level?: number; match_type?: string };
       }> };
-      const candidates = (data.results ?? []).filter((item) =>
+      if (collect && !(data.results ?? []).some(item => exactStreet(searchStreet, item.street ?? '')
+        && exact(number, item.housenumber ?? '') && exact(city, item.city ?? '')
+        && exactState(state, item.state_code || item.state || ''))) {
+        for (const alternative of addressSearchVariants(url, searchStreet, number, municipality.name, state)) {
+          try {
+            const alternateResponse = await fetch(alternative, { cache: 'no-store', signal: AbortSignal.timeout(12_000) });
+            if (!alternateResponse.ok) break;
+            const alternateData = await alternateResponse.json() as typeof data;
+            data.results = [...(data.results ?? []), ...(alternateData.results ?? [])];
+            if ((alternateData.results ?? []).some(item => exactStreet(searchStreet, item.street ?? '')
+              && exact(number, item.housenumber ?? '') && exact(city, item.city ?? '')
+              && exactState(state, item.state_code || item.state || ''))) break;
+          } catch { /* Preserve evidence from the initial search. */ }
+        }
+      }
+      const seen = new Set<string>();
+      const candidates = (data.results ?? []).filter(item => {
+        const key = `${item.lat}:${item.lon}:${item.street}:${item.housenumber}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      }).filter((item) =>
         item.country_code === 'br' && exact(city, item.city ?? '')
         && exactState(state, item.state_code || item.state || '')
         && typeof item.lat === 'number' && Number.isFinite(item.lat)
