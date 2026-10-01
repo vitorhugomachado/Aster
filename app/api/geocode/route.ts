@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 180;
 
 import { geocodeError } from '../../lib/geocode-errors';
+import { GeminiServiceError } from '../../lib/gemini';
 import { NextResponse } from 'next/server';
 import { lookupCnefeAddress } from '../../data/cnefe';
 import { findMunicipality, findMunicipalityByName } from '../../data/municipalities';
@@ -667,7 +668,10 @@ export async function POST(request: Request) {
     if (!candidates.some((item) => item.numberMatched && item.streetMatched) && first.ok) {
       const review = await reviewAddress(internalRequest({ ...payload,
         locationEvidence: { code: data.code, message: data.message, suggestedAddress: candidates[0]?.formattedAddress } }));
-      if (!review.ok) throw new Error('Revisão indisponível');
+      if (!review.ok) {
+        const failure = await review.json() as { message?: string };
+        throw new GeminiServiceError(failure.message || 'Revisão de nomenclatura indisponível.', review.status);
+      }
       const correction = await review.json() as { changed?: boolean; address?: GeocodePayload };
       if (correction.changed && correction.address) {
         correctedAddress = { ...payload, street: correction.address.street, neighborhood: correction.address.neighborhood };
@@ -691,14 +695,21 @@ export async function POST(request: Request) {
       message: !numberFound && candidates.some((item) => item.streetMatched) ? `Numeração não localizada: ${payload.number}. ${decision.reason}` : decision.reason,
       aiReviewNote: decision.reason, ...suggestion(selected || candidates.find((item) => item.streetMatched)),
     });
-  } catch {
+  } catch (error) {
+    const detail = error instanceof GeminiServiceError ? error.message
+      : error instanceof SyntaxError ? 'A IA retornou uma resposta que não pôde ser interpretada.'
+      : error instanceof Error && ['Decisão inválida', 'Candidato inexistente', 'Confirmação inválida'].includes(error.message)
+        ? `${error.message}: a resposta da IA não corresponde às evidências disponíveis.`
+        : 'A consulta à IA falhou antes de concluir a análise. Tente novamente.';
+    const evidence = !candidates.length ? 'As bases não retornaram um candidato válido para este endereço.'
+      : !candidates.some(item => item.streetMatched) ? 'A rua retornada pelas bases não corresponde à rua informada.'
+      : !candidates.some(item => item.numberMatched && item.streetMatched) ? `Numeração não localizada: ${payload.number}. Há apenas uma posição aproximada da rua.`
+      : 'Existe um candidato para a rua e o número, mas a confirmação pela IA não foi concluída.';
     const fallback = candidates.find((item) => item.streetMatched);
     return answer({ ...metadata(), confirmationSource: null, decision: 'revisar',
       code: fallback && !candidates.some((item) => item.numberMatched && item.streetMatched) ? 'number_not_found' : 'ai_review_unavailable',
-      message: fallback && !candidates.some((item) => item.numberMatched && item.streetMatched)
-        ? `Numeração não localizada: ${payload.number}. A IA não concluiu uma decisão válida; confira o ponto aproximado da rua.`
-        : 'A IA não concluiu uma decisão válida. Revise o ponto sugerido ou tente novamente.',
-      aiReviewNote: 'Confirmação automática suspensa: decisão da IA indisponível ou inválida.', ...suggestion(fallback) });
+      message: `${evidence} ${detail}`,
+      aiReviewNote: `${evidence} ${detail}`, ...suggestion(fallback) });
   }
 }
 

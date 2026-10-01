@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useState } from 'react';
 import Image from 'next/image';
+import CloudSky from './CloudSky';
 import { LoaderCircle, LockKeyhole, LogIn, ShieldCheck } from 'lucide-react';
 import { FloatingInput } from './floating-input';
 import { WatermelonButton, WatermelonCard } from './watermelon-system';
@@ -53,6 +54,7 @@ export function AuthGate() {
 
   return (
     <main className="auth-shell">
+      <div className="auth-sky" aria-hidden="true"><CloudSky style={{ width: '100%', height: '100%' }} speed={20} /></div>
       <WatermelonCard className="auth-card">
         <header className="auth-brand">
           <span><Image src="/brand/aster-client-pin.png" alt="" width={42} height={42} priority /></span>
@@ -61,7 +63,7 @@ export function AuthGate() {
         <div className="auth-copy">
           <span className="auth-icon">{session.setupRequired ? <ShieldCheck size={20} /> : <LockKeyhole size={20} />}</span>
           <h1>{session.setupRequired ? 'Criar acesso administrador' : 'Entrar no Aster'}</h1>
-          <p>{session.setupRequired ? 'Este cadastro será o proprietário da base comercial.' : 'Sua base está protegida e sincronizada no Railway.'}</p>
+          <p>{session.setupRequired ? 'Este cadastro será o proprietário da base comercial.' : 'Tudo pronto para continuar seu próximo caminho.'}</p>
         </div>
         <form className="auth-form" onSubmit={submit}>
           {session.setupRequired && <FloatingInput id="auth-name" label="Seu nome" value={name} onChange={(event) => setName(event.target.value)} required />}

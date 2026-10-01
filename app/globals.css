@@ -2544,3 +2544,13 @@ input::placeholder, textarea::placeholder { color: var(--foreground-subtle); opa
     box-shadow: none;
   }
 }
+
+/* Cloud Sky login */
+.auth-shell { position: relative; isolation: isolate; background: #87b9ed; color: #35516c; }
+.auth-sky { position: absolute; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; }
+.auth-card { background: rgba(248, 252, 255, .82); backdrop-filter: blur(22px); border: 1px solid rgba(255,255,255,.8); box-shadow: 0 24px 80px rgba(28,73,122,.22); --primary: #225d99; --primary-soft: #e3effa; --foreground: #153754; --foreground-muted: #49657c; --foreground-subtle: #58758c; }
+.auth-brand > span { background: #3169a0; }
+.auth-copy h1 { color: #153754; }
+.auth-form input { background: rgba(255,255,255,.72) !important; border-color: #b9d0e4 !important; color: #153754 !important; }
+.auth-submit { background: #225d99 !important; color: #fff !important; box-shadow: 0 6px 18px rgba(34,93,153,.18); }
+.auth-submit:hover { background: #194d82 !important; }

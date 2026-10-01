@@ -106,3 +106,4 @@ describe('Geoapify geocoding', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
+
