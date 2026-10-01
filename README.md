@@ -78,3 +78,6 @@ O endpoint `GET /api/health` é usado pelo health check da hospedagem.
 
 Produção usa Next.js. Configure DATABASE_URL com o Transaction pooler Supabase (porta 6543), ASTER_BOOTSTRAP_TOKEN e as chaves de API no ambiente da Vercel. Use APP_URL para o domínio público. Execute npm run db:setup para aplicar supabase/migrations/202610010001_aster.sql. vercel.json define o preset Next.js e região iad1; .env.local não é versionado.
 
+
+Validação atual: IBGE/CNEFE e Geoapify confirmam diretamente os endereços que atendem aos critérios das bases. A Groq é consultada somente quando a validação inicial fica pendente, para revisar nomenclatura e selecionar candidatos. Falhas da IA não bloqueiam confirmações das bases. Registros pendentes anteriores devem ser reavaliados pelo fluxo Relocalizar.
+

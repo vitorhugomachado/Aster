@@ -635,10 +635,12 @@ async function locateAddress(request: Request, collect = false) {
   }
 }
 
-// All confirmations are decided by Groq when configured.
+// Bases confirm first; Groq only investigates unresolved addresses.
 export async function POST(request: Request) {
   if (!process.env.GROQ_API_KEY?.trim()) return locateAddress(request);
   const replay = request.clone();
+  const validation = await locateAddress(request.clone() as Request);
+  if (validation.ok || [401, 413, 429].includes(validation.status)) return validation;
   const first = await locateAddress(request, true);
   const data = await first.json() as Record<string, unknown>;
   if (!first.ok && ['invalid_city', 'incomplete_address'].includes(String(data.code))) return NextResponse.json(data, { status: first.status });
@@ -699,3 +701,5 @@ export async function POST(request: Request) {
       aiReviewNote: 'Confirmação automática suspensa: decisão da IA indisponível ou inválida.', ...suggestion(fallback) });
   }
 }
+
+

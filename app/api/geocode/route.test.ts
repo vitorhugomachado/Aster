@@ -23,7 +23,7 @@ async function request(result: unknown, status = 200) {
   vi.stubGlobal('fetch', fetchMock);
   const response = await POST(new Request('http://localhost/api/geocode', { method: 'POST',
     body: JSON.stringify({ street: 'Rua XV de Novembro', number: '100', city: 'Curitiba', state: 'PR' }) }));
-  expect(fetchMock).toHaveBeenCalledTimes(1);
+  expect(fetchMock).toHaveBeenCalledTimes(process.env.GROQ_API_KEY ? 2 : 1);
   expect(String(fetchMock.mock.calls[0]?.[0])).toContain('api.geoapify.com');
   return { response, body: await response.json() as Record<string, unknown> };
 }
@@ -62,6 +62,7 @@ describe('Geoapify geocoding', () => {
       reason: 'Nome oficial encontrado', suggestedNumber: '40',
       address: { street: 'Rua XV de Novembro', number: '40', neighborhood: 'Centro', city: 'Curitiba', state: 'PR', zip: '' } }));
     const mock = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ results: [] })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ results: [] })))
       .mockResolvedValueOnce(new Response(JSON.stringify({ results: [building] })));
     vi.stubGlobal('fetch', mock);
     const response = await POST(new Request('http://localhost/api/geocode', { method: 'POST',
@@ -71,8 +72,8 @@ describe('Geoapify geocoding', () => {
     expect(body.reviewedByAi).toBe(true);
     expect(body.correctedAddress).toMatchObject({ street: 'Rua XV de Novembro', number: '100' });
     expect(body.suggestedNumber).toBeUndefined();
-    expect(mock).toHaveBeenCalledTimes(2);
-    expect(String(mock.mock.calls[1][0])).toContain('housenumber=100');
+    expect(mock).toHaveBeenCalledTimes(3);
+    expect(String(mock.mock.calls[2][0])).toContain('housenumber=100');
   });
   it('preserves location evidence when the AI quota is exhausted', async () => {
     vi.stubEnv('GROQ_API_KEY', 'test-groq');
@@ -90,12 +91,18 @@ describe('Geoapify geocoding', () => {
     expect(body.quality).toBe('aproximada');
     expect(body.confirmationSource).toBe('groq');
   });
-  it('keeps an exact candidate pending if Groq fails', async () => {
+  it('confirms an exact base candidate without consulting Groq', async () => {
     vi.stubEnv('GROQ_API_KEY', 'test-groq');
     vi.mocked(decideAddress).mockRejectedValue(new Error('quota'));
-    const { response, body } = await request({ results: [building] });
-    expect(response.status).toBe(422);
-    expect(body.lat).toBeUndefined();
-    expect(body.suggestedLocation).toEqual({ lat: building.lat, lng: building.lon });
+    vi.stubEnv('GEOAPIFY_API_KEY', 'test-geo');
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ results: [building] })));
+    vi.stubGlobal('fetch', fetchMock);
+    const response = await POST(new Request('http://localhost/api/geocode', { method: 'POST',
+      body: JSON.stringify({ street: building.street, number: '100', city: 'Curitiba', state: 'PR' }) }));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ lat: building.lat, quality: 'exata', source: 'GEOAPIFY' });
+    expect(decideAddress).not.toHaveBeenCalled();
+    expect(review).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
