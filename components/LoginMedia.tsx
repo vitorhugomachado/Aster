@@ -3,8 +3,8 @@
 import { useState } from 'react';
 import CloudSky from './CloudSky';
 
-// Place the real video at public/videos/login-sky.mp4.
-export function LoginMedia({ src = '/videos/login-sky.mp4' }: { src?: string }) {
+// Place the real video at public/videos/login-balloon.mp4.
+export function LoginMedia({ src = '/videos/login-balloon.mp4' }: { src?: string }) {
   const [available, setAvailable] = useState(false);
   const [failed, setFailed] = useState(false);
   return <aside className="login-media" aria-label="Céu azul e nuvens">
