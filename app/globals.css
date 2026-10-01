@@ -2663,3 +2663,6 @@ input::placeholder, textarea::placeholder { color: var(--foreground-subtle); opa
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .premium-login .login-frame { background: rgba(234,245,255,.65); }
 }
+
+.premium-login .login-wordmark span { color: #11243f; font-size: 42px; font-weight: 400; letter-spacing: -.055em; line-height: 1; }
+.brand strong { letter-spacing: -.055em; }

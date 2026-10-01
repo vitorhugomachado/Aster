@@ -57,7 +57,7 @@ export function AuthGate() {
       <div className="auth-sky" aria-hidden="true"><CloudSky background="#a9d4f7" baseColor="#eaf5ff" speed={8} style={{ width: '100%', height: '100%' }} /></div>
       <section className="login-frame">
         <div className="login-form-column">
-          <header className="login-wordmark" aria-label="aster"><span>aster</span><svg width="34" height="34" viewBox="0 0 40 40" aria-hidden="true"><path d="M20 0 24 16 40 20 24 24 20 40 16 24 0 20 16 16Z" fill="currentColor" /></svg></header>
+          <header className="login-wordmark" aria-label="Aster"><span>Aster</span></header>
           <div className="login-heading">
             <h1>{session.setupRequired ? 'Criar acesso administrador.' : 'Bem-vinda de volta.'}</h1>
             <p>{session.setupRequired ? 'Prepare seu espaço para começar a jornada.' : 'Tudo pronto para continuar sua jornada.'}</p>
@@ -82,3 +82,4 @@ export function AuthGate() {
     </main>
   );
 }
+

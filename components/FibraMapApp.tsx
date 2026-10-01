@@ -2065,8 +2065,7 @@ export function FibraMapApp({ cloudEnabled = false, currentUser }: FibraMapAppPr
     <main className="app-shell">
       <header className="topbar">
         <div className="brand-block">
-          <span className="brand-mark" aria-hidden="true"><Image src="/brand/aster-client-pin.png" alt="" width={32} height={32} priority /></span>
-          <div><strong>aster</strong><span>Inteligência comercial</span></div>
+          <div><strong>Aster</strong><span>Inteligência comercial</span></div>
         </div>
 
         <CommandSearch
@@ -2746,3 +2745,4 @@ export function FibraMapApp({ cloudEnabled = false, currentUser }: FibraMapAppPr
     </main>
   );
 }
+
