@@ -10,7 +10,7 @@ A interface usa componentes de código aberto do [Watermelon UI](https://ui.wate
 
 - Seletor com os 399 municípios do Paraná e limites oficiais do IBGE.
 - Importação de `.xlsx` e `.csv` com `nome`, `logradouro` e `número` obrigatórios.
-- Geocodificação automática: CNEFE/IBGE primeiro e Google Geocoding como complemento.
+- Geocodificação automática: CNEFE/IBGE, Photon/OpenStreetMap gratuito e Google Geocoding como complemento.
 - Revisão ortográfica automática com Gemini quando o endereço não é confirmado; as coordenadas continuam sendo validadas pelo CNEFE/Google.
 - Aster IA para consultar clientes, planos, grupos rurais e importações da cidade ativa em linguagem natural.
 - Funil de oportunidades com etapas, pesquisa, filtros, importação e cadastro diretamente no mapa.
@@ -35,6 +35,8 @@ Use Node.js 22.13 ou superior e configure as variáveis:
 ```env
 GOOGLE_MAPS_BROWSER_KEY=
 GEOAPIFY_API_KEY=
+PHOTON_BASE_URL=
+PHOTON_MIN_INTERVAL_MS=
 GOOGLE_MAPS_GEOCODING_KEY=
 GOOGLE_MAPS_ADDRESS_VALIDATION_KEY=
 GEMINI_API_KEY=
@@ -50,11 +52,11 @@ A chave de navegador deve ser restrita ao Maps JavaScript API e aos domínios au
 
 Na primeira execução com banco configurado, a tela de acesso solicita o `ASTER_BOOTSTRAP_TOKEN` para criar o primeiro administrador. Depois disso, o código não é mais aceito para novos cadastros.
 
-Com GEOAPIFY_API_KEY configurada, o sistema usa IBGE/CNEFE e Geoapify, sem recorrer ao Google para geocodificação. Com GROQ_API_KEY, a Groq dá a decisão final, inclusive para candidatos de baixa confiança; não há bloqueio obrigatório em 0,95. As chaves permanecem no .env.local ignorado pelo Git.
+Com GEOAPIFY_API_KEY configurada, o sistema usa IBGE/CNEFE e Geoapify, sem recorrer ao Google para geocodificação. Sem essa chave, o Photon/OpenStreetMap entra como alternativa gratuita e sem cadastro, sempre depois do CNEFE e antes do Google. As consultas ao Photon são serializadas (uma por segundo por padrão), armazenadas em cache por 24 horas e identificadas por User-Agent; para volume maior, aponte `PHOTON_BASE_URL` para uma instância própria e ajuste `PHOTON_MIN_INTERVAL_MS`. Com GROQ_API_KEY, a Groq dá a decisão final, inclusive para candidatos de baixa confiança; não há bloqueio obrigatório em 0,95. As chaves permanecem no .env.local ignorado pelo Git.
 
 ## Desenvolvimento
 
-O endpoint `/api/geocode` coleta candidatos IBGE/Geoapify e consulta a Groq para a decisão final: confirmar, revisar ou não localizado. Confiança do provedor é apenas evidência interna. A IA seleciona somente pontos existentes, com número e rua correspondentes; município/UF e coordenadas são verificados pelo servidor. Uma busca adicional por nomenclatura corrigida é permitida. O número nunca é alterado; ausência de correspondência gera Numeração não localizada. Falhas de IA mantêm revisão e sugestão. A resposta inclui decision, confirmationSource, selectedCandidateId, aiReviewNote e correctedAddress. Precisão e confirmação são independentes; a interface mostra Confirmado pela IA e conserva o histórico das decisões.
+O endpoint `/api/geocode` coleta candidatos IBGE/CNEFE, Geoapify e Photon/OpenStreetMap e consulta a Groq para a decisão final: confirmar, revisar ou não localizado. Confiança do provedor é apenas evidência interna. A IA seleciona somente pontos existentes, com número e rua correspondentes; município/UF e coordenadas são verificados pelo servidor. Uma busca adicional por nomenclatura corrigida é permitida. O número nunca é alterado; ausência de correspondência gera Numeração não localizada. Falhas de IA mantêm revisão e sugestão. A resposta inclui decision, confirmationSource, selectedCandidateId, aiReviewNote e correctedAddress. Precisão e confirmação são independentes; a interface mostra Confirmado pela IA e conserva o histórico das decisões.
 
 Com `GROQ_API_KEY` configurada, a revisão de endereços e o Aster IA usam Groq, sem fallback para Gemini. A revisão recebe apenas campos de endereço e candidatos do IBGE. A IA decide entre candidatos coletados; não cria coordenadas nem altera números. Consulte as cotas do plano gratuito no console Groq.
 

@@ -6,6 +6,7 @@ import { geocodeError } from '../../lib/geocode-errors';
 import { addressSearchVariants } from '../../lib/address-search';
 import { GeminiServiceError } from '../../lib/gemini';
 import { NextResponse } from 'next/server';
+import { searchPhoton, type PhotonPlace } from '../../lib/photon';
 import { lookupCnefeAddress } from '../../data/cnefe';
 import { findMunicipality, findMunicipalityByName } from '../../data/municipalities';
 import { currentUser } from '../../lib/auth';
@@ -147,6 +148,166 @@ function distanceKm(from: { lat: number; lng: number }, to: { lat: number; lng: 
   const a = Math.sin(latDelta / 2) ** 2
     + Math.cos(radians(from.lat)) * Math.cos(radians(to.lat)) * Math.sin(lngDelta / 2) ** 2;
   return 6_371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+interface PhotonMatch {
+  place: PhotonPlace;
+  checks: { number: boolean; street: boolean; city: boolean; state: boolean; zip: boolean };
+}
+
+interface PhotonLookup {
+  matches: PhotonMatch[];
+  exact?: PhotonMatch;
+  streetSuggestion?: PhotonMatch;
+  unavailable: boolean;
+}
+
+function photonStreet(place: PhotonPlace) {
+  return place.street || (place.type === 'street' ? place.name : '');
+}
+
+function photonFormattedAddress(place: PhotonPlace) {
+  const line = [photonStreet(place), place.housenumber].filter(Boolean).join(', ');
+  const district = place.district || place.locality;
+  const cityLine = [place.city, place.state].filter(Boolean).join(' - ');
+  return [line, district, cityLine, place.postcode, 'Brasil'].filter(Boolean).join(', ');
+}
+
+/**
+ * Consulta o Photon (OpenStreetMap) e aplica as mesmas travas das demais
+ * bases: país, cidade, UF, distância máxima do município e conferência do
+ * número. Só considera localização exata quando o resultado é de imóvel.
+ */
+async function photonLookup(
+  input: {
+    street: string;
+    number: string;
+    neighborhood: string;
+    city: string;
+    state: string;
+    zip: string;
+    municipality: { name: string; lat: number; lng: number };
+  },
+): Promise<PhotonLookup> {
+  let places: PhotonPlace[] = [];
+  let unavailable = false;
+  try {
+    places = await searchPhoton({
+      street: input.street,
+      number: input.number,
+      neighborhood: input.neighborhood,
+      city: input.municipality.name,
+      state: input.state,
+      zip: input.zip,
+      near: { lat: input.municipality.lat, lng: input.municipality.lng },
+    });
+  } catch {
+    unavailable = true;
+  }
+
+  const zipDigits = input.zip.replace(/\D/g, '');
+  const matches: PhotonMatch[] = [];
+  for (const place of places) {
+    if (place.countryCode && place.countryCode.toLowerCase() !== 'br') continue;
+    if (!Number.isFinite(place.lat) || !Number.isFinite(place.lng)) continue;
+    if (distanceKm(input.municipality, place) > 150) continue;
+    const placeCity = place.city || place.locality || place.district || place.county;
+    const cityMatches = exact(input.city, placeCity) || exact(input.municipality.name, placeCity);
+    const stateMatches = exactState(input.state, place.state);
+    if (!cityMatches || !stateMatches) continue;
+    const placeZip = place.postcode.replace(/\D/g, '');
+    matches.push({
+      place,
+      checks: {
+        number: exact(input.number, place.housenumber),
+        street: exactStreet(input.street, photonStreet(place)),
+        city: cityMatches,
+        state: stateMatches,
+        // Ausência de CEP no OSM não invalida o resultado; divergência, sim.
+        zip: !zipDigits || !placeZip ? true : zipDigits === placeZip,
+      },
+    });
+  }
+
+  const exactMatch = matches.find(({ place, checks }) =>
+    place.type === 'house' && checks.number && checks.street && checks.zip);
+  const streetSuggestion = matches
+    .filter(({ checks }) => checks.street)
+    .sort((left, right) => distanceKm(input.municipality, left.place) - distanceKm(input.municipality, right.place))[0];
+
+  return { matches, exact: exactMatch, streetSuggestion, unavailable };
+}
+
+function photonExactResponse(match: PhotonMatch) {
+  const { place, checks } = match;
+  return NextResponse.json({
+    lat: place.lat,
+    lng: place.lng,
+    quality: 'exata',
+    locationType: 'PHOTON_HOUSE',
+    source: 'PHOTON_OSM',
+    partialMatch: false,
+    checks,
+    formattedAddress: photonFormattedAddress(place),
+    ...(place.osmId ? { placeId: `osm:${place.osmType}/${place.osmId}` } : {}),
+  }, { headers: { 'Cache-Control': 'no-store' } });
+}
+
+function photonCandidates(lookup: PhotonLookup): LocationCandidate[] {
+  return lookup.matches.map(({ place, checks }, index) => ({
+    id: `photon:${index}`,
+    lat: place.lat,
+    lng: place.lng,
+    source: 'PHOTON_OSM',
+    formattedAddress: photonFormattedAddress(place),
+    numberMatched: checks.number,
+    streetMatched: checks.street,
+    precision: place.type === 'house' && checks.number && checks.street ? 'exata' : 'aproximada',
+    evidence: { checks, type: place.type, osmKey: place.osmKey, osmValue: place.osmValue },
+  }));
+}
+
+function photonCandidatePayload(
+  lookup: PhotonLookup,
+  cnefe?: { lat: number; lng: number; source: string; formattedAddress: string },
+) {
+  const candidates = photonCandidates(lookup);
+  if (cnefe) {
+    candidates.push({
+      id: 'ibge:estimated',
+      ...cnefe,
+      numberMatched: false,
+      streetMatched: true,
+      precision: 'aproximada',
+    });
+  }
+  return candidates;
+}
+
+function photonReview(lookup: PhotonLookup, number: string) {
+  const street = lookup.streetSuggestion;
+  if (!street) {
+    return {
+      code: 'street_not_confirmed',
+      message: 'As bases gratuitas encontraram a região, mas não confirmaram a rua informada. Confira a grafia do logradouro.',
+    };
+  }
+  if (!street.checks.number) {
+    return {
+      code: 'number_not_confirmed',
+      message: `Rua localizada nas bases gratuitas, mas o número ${number} não foi confirmado. O ponto sugerido é aproximado; confira o imóvel no mapa.`,
+    };
+  }
+  if (!street.checks.zip) {
+    return {
+      code: 'postcode_mismatch',
+      message: 'Rua e número encontrados, mas o CEP retornado diverge do informado. Confira o CEP e o ponto sugerido.',
+    };
+  }
+  return {
+    code: 'insufficient_precision',
+    message: 'Rua e número encontrados, mas a posição do imóvel não tem precisão suficiente. Confirme o ponto no mapa.',
+  };
 }
 
 function component(result: GoogleGeocodeResult, ...types: string[]) {
@@ -292,6 +453,18 @@ async function locateAddress(request: Request, collect = false) {
   // A configured Geoapify key selects the free provider; never fall back to
   // paid Google requests when its quota or service is unavailable.
   const geoapifyKey = process.env.GEOAPIFY_API_KEY?.trim();
+  // O Photon é gratuito e sem chave. A consulta é preguiçosa: só acontece se
+  // as bases preferenciais não confirmarem o endereço.
+  let photonPromise: Promise<PhotonLookup> | null = null;
+  const photon = () => photonPromise ??= photonLookup({
+    street, number, neighborhood, city, state, zip, municipality,
+  });
+  const photonSuggestion = (lookup: PhotonLookup) => lookup.streetSuggestion ? {
+    lat: lookup.streetSuggestion.place.lat,
+    lng: lookup.streetSuggestion.place.lng,
+    source: 'PHOTON_OSM',
+    formattedAddress: photonFormattedAddress(lookup.streetSuggestion.place),
+  } : undefined;
   if (geoapifyKey) {
     // Use the official street spelling/type already matched by CNEFE,
     // including when its house-number coordinates are only interpolated.
@@ -308,6 +481,11 @@ async function locateAddress(request: Request, collect = false) {
       const response = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(15_000) });
       if (!response.ok) {
         const denied = [401, 403].includes(response.status);
+        const fallback = await photon();
+        if (!collect && fallback.exact) return photonExactResponse(fallback.exact);
+        if (collect && (fallback.matches.length || approximateCnefeSuggestion)) {
+          return NextResponse.json({ candidates: photonCandidatePayload(fallback, approximateCnefeSuggestion) });
+        }
         return NextResponse.json({ code: response.status === 429 ? 'rate_limited' : denied ? 'geocoder_denied' : 'geocoder_unavailable', message: response.status === 429 ? 'Limite de consultas do Geoapify atingido. Tente mais tarde.' : denied ? 'Geoapify recusou o acesso. Confira a chave e suas restrições.' : 'Serviço Geoapify temporariamente indisponível. Tente novamente mais tarde.' }, { status: response.status === 429 ? 429 : 503 });
       }
       const data = await response.json() as { results?: Array<{
@@ -355,6 +533,8 @@ async function locateAddress(request: Request, collect = false) {
           precision: item.result_type === 'building' && (item.rank?.confidence_building_level ?? 0) >= 0.95 ? 'exata' : 'aproximada',
           evidence: { checks, resultType: item.result_type, rank: item.rank },
         }));
+        const fallback = await photon();
+        collected.push(...photonCandidates(fallback));
         if (approximateCnefeSuggestion) collected.push({ id: 'ibge:estimated',
           ...approximateCnefeSuggestion, numberMatched: false, streetMatched: true, precision: 'aproximada' });
         return NextResponse.json({ candidates: collected,
@@ -373,6 +553,8 @@ async function locateAddress(request: Request, collect = false) {
       }
       const streetCandidate = candidates.find(({ checks }) => checks.street);
       const suggestion = streetCandidate?.item;
+      const fallback = await photon();
+      if (fallback.exact) return photonExactResponse(fallback.exact);
       let code = 'address_not_found';
       let message = 'Endereço não localizado nas bases consultadas. Confira o nome da rua, número e CEP.';
       if ((data.results ?? []).length > 0 && candidates.length === 0) {
@@ -393,38 +575,63 @@ async function locateAddress(request: Request, collect = false) {
           ? 'Rua e número correspondentes, mas a localização retornada não tem precisão de imóvel. Confirme o ponto no mapa.'
           : 'Rua e número encontrados, mas a confiança na posição do imóvel é insuficiente para confirmação automática. Confira o ponto sugerido.';
       }
-      if (!suggestion && approximateCnefeSuggestion) {
+      if (!suggestion && fallback.streetSuggestion) {
+        const photonResult = photonReview(fallback, number);
+        code = photonResult.code;
+        message = photonResult.message;
+      }
+      if (!suggestion && !fallback.streetSuggestion && approximateCnefeSuggestion) {
         code = 'insufficient_precision';
         message = `O IBGE identificou ${searchStreet}, mas não confirmou a posição exata do número ${number}. O ponto sugerido foi estimado entre imóveis vizinhos. Ajuste e confirme no mapa.`;
       }
       return reviewResponse(code, message,
-        suggestion ? { lat: suggestion.lat!, lng: suggestion.lon!, source: 'GEOAPIFY', formattedAddress: suggestion.formatted } : approximateCnefeSuggestion);
+        suggestion
+          ? { lat: suggestion.lat!, lng: suggestion.lon!, source: 'GEOAPIFY', formattedAddress: suggestion.formatted }
+          : approximateCnefeSuggestion ?? photonSuggestion(fallback));
     } catch {
+      const fallback = await photon();
+      if (fallback.exact) return photonExactResponse(fallback.exact);
+      if (fallback.matches.length) {
+        return reviewResponse(
+          'address_requires_review',
+          'O Geoapify falhou, mas o OpenStreetMap encontrou o endereço. Confirme o ponto no mapa.',
+          approximateCnefeSuggestion ?? photonSuggestion(fallback),
+        );
+      }
       return NextResponse.json({ code: 'geocoder_unavailable', message: 'Falha temporária no Geoapify. Tente novamente.' }, { status: 502 });
     }
   }
 
+  // Sem chave do Geoapify, o Photon (gratuito e sem chave) assume como
+  // alternativa fora do CNEFE. Com chave, ele já foi consultado apenas como
+  // contingência dentro do bloco acima.
+  const photonResult = await photon();
+  if (!collect && photonResult.exact) return photonExactResponse(photonResult.exact);
+  if (collect && (photonResult.matches.length || approximateCnefeSuggestion)) {
+    return NextResponse.json({ candidates: photonCandidatePayload(photonResult, approximateCnefeSuggestion) });
+  }
+  const fallbackSuggestion = approximateCnefeSuggestion ?? photonSuggestion(photonResult);
+
   if (!addressValidationKey && !geocodingKey) {
-    if (approximateCnefeSuggestion) {
-      return reviewResponse(
-        'insufficient_precision',
-        'O IBGE encontrou apenas uma posição interpolada. Confirme o ponto no mapa.',
-        approximateCnefeSuggestion,
-      );
+    if (fallbackSuggestion) {
+      const review = photonResult.streetSuggestion
+        ? photonReview(photonResult, number)
+        : { code: 'insufficient_precision', message: 'Nenhuma base confirmou o número exato. Confirme o ponto sugerido no mapa.' };
+      return reviewResponse(review.code, review.message, fallbackSuggestion);
     }
     return NextResponse.json(
-      { code: 'geocoder_not_configured', message: 'O endereço não está na base do IBGE e a validação do Google ainda não foi configurada.' },
+      { code: 'geocoder_not_configured', message: 'O endereço não foi localizado nas bases gratuitas (IBGE/CNEFE e OpenStreetMap). Confirme o ponto no mapa ou configure uma chave de geocodificação.' },
       { status: 503, headers: { 'Cache-Control': 'no-store' } },
     );
   }
 
   const failureResponse = (failure: ReturnType<typeof geocodeError>) => NextResponse.json({
     code: failure.code,
-    message: failure.message + (approximateCnefeSuggestion ? ' O IBGE oferece apenas uma posição estimada; confirme o ponto no mapa.' : ''),
-    ...(approximateCnefeSuggestion ? {
-      suggestedLocation: { lat: approximateCnefeSuggestion.lat, lng: approximateCnefeSuggestion.lng },
-      suggestionSource: approximateCnefeSuggestion.source,
-      suggestedAddress: approximateCnefeSuggestion.formattedAddress,
+    message: failure.message + (fallbackSuggestion ? ' Há apenas uma posição estimada; confirme o ponto no mapa.' : ''),
+    ...(fallbackSuggestion ? {
+      suggestedLocation: { lat: fallbackSuggestion.lat, lng: fallbackSuggestion.lng },
+      suggestionSource: fallbackSuggestion.source,
+      suggestedAddress: fallbackSuggestion.formattedAddress,
     } : {}),
   }, { status: failure.status, headers: { 'Cache-Control': 'no-store', ...(failure.status === 429 ? { 'Retry-After': '60' } : {}) } });
   let validationFailure: ReturnType<typeof geocodeError> | undefined;
@@ -523,7 +730,7 @@ async function locateAddress(request: Request, collect = false) {
               source: 'GOOGLE_ADDRESS_VALIDATION',
               formattedAddress: validatedAddress?.formattedAddress,
             }
-          : approximateCnefeSuggestion;
+          : fallbackSuggestion;
         const cityMatches = checks.city && checks.state;
         return reviewResponse(
           cityMatches ? 'address_requires_review' : 'outside_active_city',
@@ -551,11 +758,11 @@ async function locateAddress(request: Request, collect = false) {
 
   if (!geocodingKey) {
     if (validationFailure) return failureResponse(validationFailure);
-    if (approximateCnefeSuggestion) {
+    if (fallbackSuggestion) {
       return reviewResponse(
         'insufficient_precision',
-        'O IBGE encontrou apenas uma posição interpolada. Confirme o ponto no mapa.',
-        approximateCnefeSuggestion,
+        'Nenhuma base confirmou o número exato. Confirme o ponto sugerido no mapa.',
+        fallbackSuggestion,
       );
     }
     return NextResponse.json(
@@ -621,7 +828,7 @@ async function locateAddress(request: Request, collect = false) {
           : insideCity
             ? 'O Google não confirmou exatamente a rua e o número dentro da cidade ativa.'
             : 'O resultado não pertence à cidade e UF selecionadas.',
-        approximateCnefeSuggestion,
+        fallbackSuggestion,
       );
     }
 

@@ -75,7 +75,8 @@ describe('Geoapify geocoding', () => {
     expect(mock.mock.calls.length).toBeGreaterThanOrEqual(3);
     for (const [query] of mock.mock.calls) {
       const url = new URL(String(query));
-      expect(url.searchParams.get('housenumber') || url.searchParams.get('text')).toContain('100');
+      const term = url.searchParams.get('housenumber') || url.searchParams.get('text') || url.searchParams.get('q');
+      expect(term).toContain('100');
     }
   });
   it('preserves location evidence when the AI quota is exhausted', async () => {
